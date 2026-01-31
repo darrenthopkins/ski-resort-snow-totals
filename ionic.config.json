@@ -1,0 +1,7 @@
+{
+  "name": "ski-resort-snow-totals",
+  "integrations": {
+    "capacitor": {}
+  },
+  "type": "react-vite"
+}
