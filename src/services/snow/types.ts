@@ -1,6 +1,6 @@
 import type { Resort } from '../../data/resorts';
 
-export type SnowSource = 'mock' | 'nws' | 'unknown';
+export type SnowSource = 'nws' | 'mock' | 'resort' | 'unknown';
 
 export type SnowMetrics = {
   last48In: number | null;

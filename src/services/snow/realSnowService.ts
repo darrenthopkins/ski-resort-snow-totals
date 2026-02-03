@@ -1,6 +1,7 @@
 import type { SnowMetrics, SnowService, GetSnowOptions } from './types';
 import { getNext24SnowInches } from './nwsClient';
 import { MockSnowService } from './mockSnowService';
+import { getPatsPeakLast48 } from './resortProviders/patsPeakOnTheSnow';
 
 const CACHE_MS = 10 * 60 * 1000; // 10 minutes
 const LS_KEY = 'srs_snow_cache_v1';
@@ -13,8 +14,6 @@ function readCache(): CacheMap {
     const raw = localStorage.getItem(LS_KEY);
     if (!raw) return {};
     const parsed = JSON.parse(raw) as CacheMap;
-
-    // basic shape validation
     if (typeof parsed !== 'object' || parsed === null) return {};
     return parsed;
   } catch {
@@ -26,11 +25,10 @@ function writeCache(cache: CacheMap) {
   try {
     localStorage.setItem(LS_KEY, JSON.stringify(cache));
   } catch {
-    // ignore storage errors (private mode, quota, etc.)
+    // ignore
   }
 }
 
-// Module-scoped cache so it survives across service calls during the session
 const memCache: CacheMap = readCache();
 
 function isFresh(entry: CacheEntry) {
@@ -53,27 +51,37 @@ export class RealSnowService implements SnowService {
       try {
         const nws = await getNext24SnowInches(r);
 
+        let last48:
+          | { last48In: number | null; updatedAt: string; sourceUrl: string }
+          | null = null;
+
+        if (r.id === 'patspeak') {
+          try {
+            last48 = await getPatsPeakLast48();
+          } catch {
+            // ignore resort failures
+          }
+        }
+
         const v: SnowMetrics = {
-          last48In: null, // TODO next: resort report providers
+          last48In: last48?.last48In ?? null,
           next24In: nws.next24In,
-          updatedAt: nws.updatedAt,
-          source: 'nws',
-          sourceUrl: nws.sourceUrl,
+          updatedAt: last48?.updatedAt ?? nws.updatedAt,
+          source: last48 ? 'resort' : 'nws',
+          sourceUrl: last48?.sourceUrl ?? nws.sourceUrl,
         };
 
         memCache[r.id] = { at: Date.now(), v };
         writeCache(memCache);
-
         out[r.id] = v;
       } catch {
-        // Fallback to mock (keeps UI stable during iteration)
         const mock = await this.mock.getSnow({ resorts: [r] });
         const mv =
-          mock[r.id] ?? ({ last48In: null, next24In: null, updatedAt: '—', source: 'unknown' } as SnowMetrics);
+          mock[r.id] ??
+          ({ last48In: null, next24In: null, updatedAt: '—', source: 'unknown' } as SnowMetrics);
 
         memCache[r.id] = { at: Date.now(), v: mv };
         writeCache(memCache);
-
         out[r.id] = mv;
       }
     }
