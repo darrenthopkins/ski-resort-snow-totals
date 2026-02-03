@@ -1,6 +1,6 @@
 import type { SnowMetrics, SnowService } from './types';
 
-const PLACEHOLDER: Record<string, SnowMetrics> = {
+const PLACEHOLDER: Record<string, Omit<SnowMetrics, 'source'>> = {
   waterville: { last48In: 6, next24In: 3, updatedAt: 'just now' },
   gunstock: { last48In: 2, next24In: 1, updatedAt: 'just now' },
   sunapee: { last48In: 4, next24In: 2, updatedAt: 'just now' },
@@ -10,8 +10,11 @@ const PLACEHOLDER: Record<string, SnowMetrics> = {
 
 export class MockSnowService implements SnowService {
   async getSnow(): Promise<Record<string, SnowMetrics>> {
-    // Simulate network latency
     await new Promise((r) => setTimeout(r, 600));
-    return PLACEHOLDER;
+    const out: Record<string, SnowMetrics> = {};
+    for (const [id, v] of Object.entries(PLACEHOLDER)) {
+      out[id] = { ...v, source: 'mock' };
+    }
+    return out;
   }
 }

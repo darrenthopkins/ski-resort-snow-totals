@@ -1,3 +1,3 @@
-import { MockSnowService } from './mockSnowService';
+import { RealSnowService } from './realSnowService';
 
-export const snowService = new MockSnowService();
+export const snowService = new RealSnowService();

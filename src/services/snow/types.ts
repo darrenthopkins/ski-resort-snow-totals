@@ -1,15 +1,13 @@
 import type { Resort } from '../../data/resorts';
 
+export type SnowSource = 'mock' | 'nws' | 'unknown';
+
 export type SnowMetrics = {
   last48In: number | null;
   next24In: number | null;
-  updatedAt: string; // human-friendly for now
-};
-
-export type SnowRow = {
-  resort: Resort;
-  miles: number | null;
-  snow: SnowMetrics;
+  updatedAt: string;         // human-friendly
+  source: SnowSource;
+  sourceUrl?: string;
 };
 
 export type GetSnowOptions = {
