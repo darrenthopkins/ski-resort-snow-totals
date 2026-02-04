@@ -1,7 +1,6 @@
 import type { SnowMetrics, SnowService, GetSnowOptions } from './types';
 import { getNext24SnowInches } from './nwsClient';
 import { MockSnowService } from './mockSnowService';
-import { getPatsPeakLast48 } from './resortProviders/patsPeakOnTheSnow';
 
 const CACHE_MS = 10 * 60 * 1000; // 10 minutes
 const LS_KEY = 'srs_snow_cache_v1';
@@ -50,25 +49,14 @@ export class RealSnowService implements SnowService {
 
       try {
         const nws = await getNext24SnowInches(r);
-
-        let last48:
-          | { last48In: number | null; updatedAt: string; sourceUrl: string }
-          | null = null;
-
-        if (r.id === 'patspeak') {
-          try {
-            last48 = await getPatsPeakLast48();
-          } catch {
-            // ignore resort failures
-          }
-        }
+	const last48 = null;
 
         const v: SnowMetrics = {
-          last48In: last48?.last48In ?? null,
+          last48In: null,
           next24In: nws.next24In,
-          updatedAt: last48?.updatedAt ?? nws.updatedAt,
-          source: last48 ? 'resort' : 'nws',
-          sourceUrl: last48?.sourceUrl ?? nws.sourceUrl,
+          updatedAt: nws.updatedAt,
+          source: 'nws',
+          sourceUrl: nws.sourceUrl,
         };
 
         memCache[r.id] = { at: Date.now(), v };
