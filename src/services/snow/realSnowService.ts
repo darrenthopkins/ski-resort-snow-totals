@@ -1,3 +1,4 @@
+import { getOnTheSnowLast48 } from './resortProviders/onthesnow';
 import type { SnowMetrics, SnowService, GetSnowOptions } from './types';
 import { getNext24SnowInches } from './nwsClient';
 import { MockSnowService } from './mockSnowService';
@@ -49,21 +50,27 @@ export class RealSnowService implements SnowService {
 
       try {
         const nws = await getNext24SnowInches(r);
-	const last48 = null;
+
+        let last48: { last48In: number | null; updatedAt: string; sourceUrl: string } | null = null;
+        try {
+          last48 = await getOnTheSnowLast48(r);
+        } catch {
+          // ignore provider failure
+        }
 
         const v: SnowMetrics = {
-          last48In: null,
+          last48In: last48?.last48In ?? null,
           next24In: nws.next24In,
-          updatedAt: nws.updatedAt,
-          source: 'nws',
-          sourceUrl: nws.sourceUrl,
-        };
+          updatedAt: last48?.updatedAt ?? nws.updatedAt,
+          source: last48 ? 'resort' : 'nws',
+          sourceUrl: last48?.sourceUrl ?? nws.sourceUrl,
+	};
 
         memCache[r.id] = { at: Date.now(), v };
         writeCache(memCache);
         out[r.id] = v;
       } catch {
-        const mock = await this.mock.getSnow({ resorts: [r] });
+        const mock = await this.mock.getSnow();
         const mv =
           mock[r.id] ??
           ({ last48In: null, next24In: null, updatedAt: '—', source: 'unknown' } as SnowMetrics);
