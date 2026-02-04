@@ -37,7 +37,7 @@ function parseUpdated(html: string): string {
 
 export async function getOnTheSnowLast48(resort: Resort) {
 
-  const slug = RESORT_PROVIDER_IDS.find(p => p.id === resort.id)?.onthesnow;
+  const slug = RESORT_PROVIDER_IDS.find((p: { id: string; onthesnow?: string }) => p.id === resort.id)?.onthesnow;
   if (!slug) return null;
 
   const url = `https://www.onthesnow.com/new-hampshire/${slug}/skireport`;
