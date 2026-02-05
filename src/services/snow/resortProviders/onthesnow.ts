@@ -11,23 +11,44 @@ function between(h: string, a: string, b: string): string | null {
 }
 
 function parseLast48FromRecentSnowfall(html: string): number | null {
-  // Anchor around Recent Snowfall section to avoid picking up arbitrary attribute width="59"
+  // Anchor around Recent Snowfall to avoid picking up unrelated inches like Base/Summit.
   const section =
     between(html, '### Recent Snowfall', '### Forecasted Snow') ??
     between(html, 'Recent Snowfall', 'Forecasted Snow');
 
   if (!section) return null;
 
-  // Extract inches values formatted like 0", 0.5", 12"
-  // Avoid HTML attributes by requiring the quote not be immediately preceded by '='
-  const nums = [...section.matchAll(/(?<![=])(\d+(?:\.\d+)?)"/g)]
-    .map(m => Number(m[1]))
+  // Further tighten to the "Recent Snowfall" block before Base/Summit cards if present.
+  const recentBlock =
+    between(section, 'Recent Snowfall', 'Base') ??
+    between(section, 'Recent Snowfall', 'Summit') ??
+    section;
+
+  // Extract values that are associated with day labels (Mon..Sun or 24h).
+  // This avoids matching Base 24", Summit 36", etc.
+  const matches = [...recentBlock.matchAll(/(?:\b(Mon|Tue|Wed|Thu|Fri|Sat|Sun|24h)\b)[\s\S]{0,120}?(\d+(?:\.\d+)?)"/g)];
+
+  if (matches.length === 0) return null;
+
+  // Prefer summing the last two *day* values (exclude 24h if present).
+  const dayVals = matches
+    .filter(m => m[1] !== '24h')
+    .map(m => Number(m[2]))
     .filter(n => Number.isFinite(n));
 
-  if (nums.length < 2) return null;
+  if (dayVals.length >= 2) {
+    return dayVals[dayVals.length - 1] + dayVals[dayVals.length - 2];
+  }
 
-  // last two values ~ last 48h
-  return nums[nums.length - 1] + nums[nums.length - 2];
+  // If we only have one day value, fall back to 24h if present.
+  const anyVals = matches
+    .map(m => Number(m[2]))
+    .filter(n => Number.isFinite(n));
+
+  if (anyVals.length >= 2) return anyVals[anyVals.length - 1] + anyVals[anyVals.length - 2];
+  if (anyVals.length === 1) return anyVals[0];
+
+  return null;
 }
 
 function parseUpdated(html: string): string {
@@ -36,7 +57,6 @@ function parseUpdated(html: string): string {
 }
 
 export async function getOnTheSnowLast48(resort: Resort) {
-
   const slug = RESORT_PROVIDER_IDS.find((p: { id: string; onthesnow?: string }) => p.id === resort.id)?.onthesnow;
   if (!slug) return null;
 
