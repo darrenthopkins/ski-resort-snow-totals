@@ -1,13 +1,20 @@
-import type { Resort } from '../../data/resorts';
+import type { Resort } from "../../data/resorts";
 
-export type SnowSource = 'nws' | 'mock' | 'resort' | 'unknown';
+export type SnowSource = "nws" | "mock" | "resort" | "unknown";
+
+export type MetricMeta = {
+  source: SnowSource;
+  sourceUrl: string;
+  updatedAt: string;
+};
 
 export type SnowMetrics = {
   last48In: number | null;
   next24In: number | null;
-  updatedAt: string;         // human-friendly
-  source: SnowSource;
-  sourceUrl?: string;
+
+  // new: per-metric provenance
+  last48Meta?: MetricMeta;
+  next24Meta?: MetricMeta;
 };
 
 export type GetSnowOptions = {

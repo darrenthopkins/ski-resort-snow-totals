@@ -6,6 +6,8 @@ import { defineConfig, type Plugin } from 'vite';
 function resortFetchProxy(): Plugin {
   const ALLOWED_HOSTS = new Set([
     'www.onthesnow.com',
+    'www.patspeak.com',
+    'patspeak.com',
     // later: 'snocountry.com', 'www.snocountry.com', etc.
   ]);
 
@@ -45,8 +47,9 @@ function resortFetchProxy(): Plugin {
       const r = await fetch(targetUrl.toString(), {
         headers: {
           // Some sites are picky; keep it simple
-          'User-Agent': 'ski-resort-snow-totals-dev',
-          'Accept': 'text/html,*/*',
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9',
         },
       });
 
