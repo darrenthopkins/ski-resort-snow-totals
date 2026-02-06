@@ -1,6 +1,6 @@
 import {
   IonBadge,
-  //what happened to IonButton?
+  IonButton,
   IonContent,
   IonHeader,
   IonItem,
@@ -18,8 +18,18 @@ import { RESORTS } from "../data/resorts";
 import { haversineMiles } from "../lib/geo";
 import { snowService } from "../services/snow";
 import type { SnowMetrics } from "../services/snow/types";
+import { todayISO } from "../lib/date";
+import { buildWeekPlan } from "../lib/weekPlanner";
 
 const MAX_MILES = 110;
+
+const FALLBACK_DRIVE_MILES: Record<string, number> = {
+  patspeak: 47,
+  gunstock: 61,
+  sunapee: 65,
+  ragged: 70,
+  waterville: 89,
+};
 
 // ---- Location persistence ----
 const LS_GEO_LAST = "srs_geo_last_v1";
@@ -155,6 +165,40 @@ export default function Snow() {
       .sort((a, b) => a.miles - b.miles);
   }, [geo]);
 
+  const driveMilesById = useMemo(() => {
+    // Start with fallbacks so the planner still works when location is off.
+    const m: Record<string, number> = { ...FALLBACK_DRIVE_MILES };
+
+    // If we have computed miles, override fallbacks with real values.
+    for (const row of resortsWithMiles) {
+      const id = row.resort.id;
+      const miles = row.miles;
+      if (
+        typeof id === "string" &&
+        typeof miles === "number" &&
+        Number.isFinite(miles) &&
+        miles > 0
+      ) {
+        m[id] = miles;
+      }
+    }
+
+    return m;
+  }, [resortsWithMiles]);
+
+  const outlook = useMemo(() => {
+    if (snowLoading) return null;
+    if (!snowById || Object.keys(snowById).length === 0) return null;
+    return buildWeekPlan({
+      resorts: RESORTS,
+      metricsByResortId: snowById,
+      startDateISO: todayISO(),
+      days: 7,
+      topNPerDay: 3,
+      driveMilesByResortId: driveMilesById,
+    });
+  }, [snowLoading, snowById]);
+
   // Load snow data via service abstraction (mock for now)
   useEffect(() => {
     let alive = true;
@@ -178,6 +222,17 @@ export default function Snow() {
   }, [resortsWithMiles]);
 
   const headerNote = useMemo(() => {
+
+function retryLocation() {
+  try {
+    localStorage.removeItem(LS_GEO_ERR);
+    localStorage.removeItem(LS_GEO_LAST);
+  } catch {
+    // ignore
+  }
+  window.location.reload();
+}
+
     if (geo.status === "loading")
       return <IonNote>Getting your location…</IonNote>;
     if (geo.status === "ready")
@@ -190,6 +245,14 @@ export default function Snow() {
       return (
         <IonNote color="warning">
           Location off: {geo.message} (showing all resorts)
+          <IonButton
+            size="small"
+            fill="outline"
+            style={{ marginLeft: 8 }}
+            onClick={retryLocation}
+          >
+            Retry
+          </IonButton>
         </IonNote>
       );
     return null;
@@ -204,6 +267,27 @@ export default function Snow() {
       </IonHeader>
 
       <IonContent>
+        {outlook && (
+          <IonList inset={true}>
+            <IonItem>
+              <IonLabel>
+                <div
+                  style={{ display: "flex", flexDirection: "column", gap: 4 }}
+                >
+                  <div style={{ fontWeight: 600 }}>
+                    Best day (v0): {outlook.bestDay.dateISO}
+                  </div>
+                  <div>
+                    Best resort: {outlook.bestDay.best.resortName} -{" "}
+                    {outlook.bestDay.best.result.label.toUpperCase()} (
+                    {outlook.bestDay.best.result.score})
+                  </div>
+                </div>
+              </IonLabel>
+            </IonItem>
+          </IonList>
+        )}
+
         <IonList inset={true}>
           <IonItem>
             <IonLabel>
