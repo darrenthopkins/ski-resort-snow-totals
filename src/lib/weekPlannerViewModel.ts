@@ -1,0 +1,220 @@
+import type { Resort } from "../data/resorts";
+
+type Label = "green" | "yellow" | "red";
+
+export type WeekPlanViewModel = {
+  summary: {
+    bestWindow: { startISO: string; endISO: string; label: string };
+    bestOverallResort: { id: string; name: string };
+    backupResort: { id: string; name: string; reason: string };
+    narrative: string;
+  };
+  days: Array<{
+    dateISO: string;
+    label: Label;
+    topPick: { resortId: string; resortName: string; score: number; label: Label };
+    runnersUp: Array<{ resortId: string; resortName: string; score: number; label: Label }>;
+    bullets: string[];
+  }>;
+  resorts: Array<{
+    resortId: string;
+    resortName: string;
+    weekTag: "steady" | "peaky" | "skip";
+  }>;
+};
+
+function clamp01(n: number) {
+  return Math.max(0, Math.min(1, n));
+}
+
+function normalizeLabel(x: any): Label {
+  if (x === "green" || x === "yellow" || x === "red") return x;
+  return "yellow";
+}
+
+function pickBestOverallResort(params: {
+  days: Array<{
+    best: { resortId: string; resortName: string; result: { score: number } };
+    topResorts: Array<{ resortId: string; resortName: string; result: { score: number } }>;
+  }>;
+  resorts: Resort[];
+}) {
+  const { days, resorts } = params;
+
+  // Score each resort by best score observed across the week (simple & stable v0).
+  const bestByResort: Record<string, number> = {};
+  const nameByResort: Record<string, string> = {};
+  for (const r of resorts) nameByResort[r.id] = r.name;
+
+  for (const d of days) {
+    const all = [d.best, ...d.topResorts];
+    for (const row of all) {
+      const prev = bestByResort[row.resortId] ?? -Infinity;
+      bestByResort[row.resortId] = Math.max(prev, row.result.score);
+    }
+  }
+
+  let bestId = resorts[0]?.id ?? "unknown";
+  let bestScore = -Infinity;
+  for (const r of resorts) {
+    const s = bestByResort[r.id];
+    if (typeof s === "number" && s > bestScore) {
+      bestScore = s;
+      bestId = r.id;
+    }
+  }
+
+  return { id: bestId, name: nameByResort[bestId] ?? bestId };
+}
+
+function pickBackupResort(params: {
+  bestOverallId: string;
+  resorts: Resort[];
+  driveMilesByResortId?: Record<string, number>;
+}) {
+  const { bestOverallId, resorts, driveMilesByResortId } = params;
+
+  // If we have drive miles, backup is the closest resort that isn't the best overall.
+  if (driveMilesByResortId) {
+    let best: { id: string; name: string; miles: number } | null = null;
+    for (const r of resorts) {
+      if (r.id === bestOverallId) continue;
+      const miles = driveMilesByResortId[r.id];
+      if (typeof miles !== "number" || !Number.isFinite(miles)) continue;
+      if (!best || miles < best.miles) best = { id: r.id, name: r.name, miles };
+    }
+    if (best) {
+      return { id: best.id, name: best.name, reason: `Closest backup option (~${Math.round(best.miles)} mi)` };
+    }
+  }
+
+  // Fallback: second resort in list (stable, deterministic v0)
+  const fallback = resorts.find(r => r.id !== bestOverallId) ?? resorts[0];
+  return { id: fallback.id, name: fallback.name, reason: "Solid backup option" };
+}
+
+function computeWeekTags(params: {
+  daysVM: WeekPlanViewModel["days"];
+  resorts: Resort[];
+}) {
+  const { daysVM, resorts } = params;
+
+  const scoresByResort: Record<string, number[]> = {};
+  for (const r of resorts) scoresByResort[r.id] = [];
+
+  for (const d of daysVM) {
+    const all = [d.topPick, ...d.runnersUp];
+    for (const row of all) {
+      if (!scoresByResort[row.resortId]) scoresByResort[row.resortId] = [];
+      scoresByResort[row.resortId].push(row.score);
+    }
+  }
+
+  function mean(xs: number[]) {
+    if (xs.length === 0) return 0;
+    return xs.reduce((a, b) => a + b, 0) / xs.length;
+  }
+  function stdev(xs: number[]) {
+    if (xs.length < 2) return 0;
+    const m = mean(xs);
+    const v = xs.reduce((a, b) => a + (b - m) * (b - m), 0) / (xs.length - 1);
+    return Math.sqrt(v);
+  }
+
+  const out: WeekPlanViewModel["resorts"] = [];
+  for (const r of resorts) {
+    const xs = scoresByResort[r.id] ?? [];
+    const m = mean(xs);
+    const sd = stdev(xs);
+
+    let weekTag: "steady" | "peaky" | "skip" = "skip";
+    if (m >= 60) weekTag = sd <= 10 ? "steady" : "peaky";
+    else if (m >= 45) weekTag = "peaky";
+    else weekTag = "skip";
+
+    out.push({ resortId: r.id, resortName: r.name, weekTag });
+  }
+  return out;
+}
+
+/**
+ * Build a UI-ready week planner view model on top of the existing buildWeekPlan() output.
+ * This is the "planner output contract" the UI should depend on.
+ */
+export function buildWeekPlanViewModel(params: {
+  // Existing planner output (from buildWeekPlan in lib/weekPlanner)
+  outlook: any;
+
+  resorts: Resort[];
+  driveMilesByResortId?: Record<string, number>;
+}): WeekPlanViewModel {
+  const { outlook, resorts, driveMilesByResortId } = params;
+
+  if (!outlook || !Array.isArray(outlook.days) || !outlook.bestDay) {
+    throw new Error("Invalid outlook input to buildWeekPlanViewModel");
+  }
+
+  const daysVM: WeekPlanViewModel["days"] = outlook.days.map((d: any) => {
+    const best = d.best;
+    const bestLabel = normalizeLabel(best?.result?.label);
+    const bestScore = Number(best?.result?.score ?? 0);
+
+    const runners = Array.isArray(d.topResorts)
+      ? d.topResorts
+          .filter((x: any) => x?.resortId !== best?.resortId)
+          .slice(0, 2)
+          .map((x: any) => ({
+            resortId: String(x.resortId),
+            resortName: String(x.resortName),
+            score: Number(x.result?.score ?? 0),
+            label: normalizeLabel(x.result?.label),
+          }))
+      : [];
+
+    const reasons: string[] = Array.isArray(best?.result?.reasons) ? best.result.reasons : [];
+    const bullets = reasons.slice(0, 3);
+
+    return {
+      dateISO: String(d.dateISO),
+      label: bestLabel,
+      topPick: {
+        resortId: String(best.resortId),
+        resortName: String(best.resortName),
+        score: bestScore,
+        label: bestLabel,
+      },
+      runnersUp: runners,
+      bullets: bullets.length ? bullets : ["Planner score based on snow + risk + crowds + travel"],
+    };
+  });
+
+  // Best window v0: just the best day (we’ll upgrade to best 2–3 day stretches next).
+  const bestISO = String(outlook.bestDay.dateISO);
+  const summaryBestOverall = pickBestOverallResort({
+    days: outlook.days,
+    resorts,
+  });
+  const backup = pickBackupResort({
+    bestOverallId: summaryBestOverall.id,
+    resorts,
+    driveMilesByResortId,
+  });
+
+  const narrative =
+    `Best day: ${bestISO}. ` +
+    `Top pick: ${String(outlook.bestDay.best?.resortName ?? summaryBestOverall.name)}. ` +
+    `Backup: ${backup.name}.`;
+
+  const vm: WeekPlanViewModel = {
+    summary: {
+      bestWindow: { startISO: bestISO, endISO: bestISO, label: bestISO },
+      bestOverallResort: summaryBestOverall,
+      backupResort: backup,
+      narrative,
+    },
+    days: daysVM,
+    resorts: computeWeekTags({ daysVM, resorts }),
+  };
+
+  return vm;
+}

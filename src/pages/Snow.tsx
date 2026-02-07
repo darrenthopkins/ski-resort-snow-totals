@@ -20,6 +20,7 @@ import { snowService } from "../services/snow";
 import type { SnowMetrics } from "../services/snow/types";
 import { todayISO } from "../lib/date";
 import { buildWeekPlan } from "../lib/weekPlanner";
+import { buildWeekPlanViewModel } from "../lib/weekPlannerViewModel";
 
 const MAX_MILES = 110;
 
@@ -197,7 +198,19 @@ export default function Snow() {
       topNPerDay: 3,
       driveMilesByResortId: driveMilesById,
     });
-  }, [snowLoading, snowById]);
+  }, [snowLoading, snowById, driveMilesById]);
+  const weekVM = useMemo(() => {
+    if (!outlook) return null;
+    return buildWeekPlanViewModel({
+      outlook,
+      resorts: RESORTS,
+      driveMilesByResortId: driveMilesById,
+    });
+  }, [outlook, driveMilesById]);
+
+
+
+
 
   // Load snow data via service abstraction (mock for now)
   useEffect(() => {
@@ -267,21 +280,16 @@ function retryLocation() {
       </IonHeader>
 
       <IonContent>
-        {outlook && (
+        {weekVM && (
           <IonList inset={true}>
             <IonItem>
               <IonLabel>
-                <div
-                  style={{ display: "flex", flexDirection: "column", gap: 4 }}
-                >
-                  <div style={{ fontWeight: 600 }}>
-                    Best day (v0): {outlook.bestDay.dateISO}
-                  </div>
-                  <div>
-                    Best resort: {outlook.bestDay.best.resortName} -{" "}
-                    {outlook.bestDay.best.result.label.toUpperCase()} (
-                    {outlook.bestDay.best.result.score})
-                  </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <div style={{ fontWeight: 700 }}>Week plan (v0)</div>
+                  <div><strong>Best window:</strong> {weekVM.summary.bestWindow.label}</div>
+                  <div><strong>Best overall:</strong> {weekVM.summary.bestOverallResort.name}</div>
+                  <div><strong>Backup:</strong> {weekVM.summary.backupResort.name} — {weekVM.summary.backupResort.reason}</div>
+                  <div style={{ opacity: 0.85 }}>{weekVM.summary.narrative}</div>
                 </div>
               </IonLabel>
             </IonItem>
