@@ -263,9 +263,7 @@ export default function Snow() {
         if (!alive) return;
         setSnowById(result);
       } finally {
-        if (!alive) {
-          setSnowLoading(false);
-        }
+        if (alive) setSnowLoading(false);
       }
     })();
     return () => {
