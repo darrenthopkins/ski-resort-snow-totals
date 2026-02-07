@@ -5,6 +5,13 @@ type Label = "green" | "yellow" | "red";
 export type WeekPlanViewModel = {
   summary: {
     bestWindow: { startISO: string; endISO: string; label: string };
+    topPicks: Array<{
+      dateISO: string;
+      label: Label;
+      resortId: string;
+      resortName: string;
+      score: number;
+    }>;
     bestOverallResort: { id: string; name: string };
     backupResort: { id: string; name: string; reason: string };
     narrative: string;
@@ -23,13 +30,25 @@ export type WeekPlanViewModel = {
   }>;
 };
 
-function clamp01(n: number) {
-  return Math.max(0, Math.min(1, n));
-}
-
 function normalizeLabel(x: any): Label {
   if (x === "green" || x === "yellow" || x === "red") return x;
   return "yellow";
+}
+
+function pickTopTwoDayPicks(daysVM: WeekPlanViewModel["days"]) {
+  const sorted = [...daysVM].sort((a, b) => b.topPick.score - a.topPick.score);
+  const out: WeekPlanViewModel["summary"]["topPicks"] = [];
+  for (const d of sorted) {
+    out.push({
+      dateISO: d.dateISO,
+      label: d.topPick.label,
+      resortId: d.topPick.resortId,
+      resortName: d.topPick.resortName,
+      score: d.topPick.score,
+    });
+    if (out.length >= 2) break;
+  }
+  return out;
 }
 
 function pickBestOverallResort(params: {
@@ -84,12 +103,16 @@ function pickBackupResort(params: {
       if (!best || miles < best.miles) best = { id: r.id, name: r.name, miles };
     }
     if (best) {
-      return { id: best.id, name: best.name, reason: `Closest backup option (~${Math.round(best.miles)} mi)` };
+      return {
+        id: best.id,
+        name: best.name,
+        reason: `Closest backup option (~${Math.round(best.miles)} mi)`,
+      };
     }
   }
 
   // Fallback: second resort in list (stable, deterministic v0)
-  const fallback = resorts.find(r => r.id !== bestOverallId) ?? resorts[0];
+  const fallback = resorts.find((r) => r.id !== bestOverallId) ?? resorts[0];
   return { id: fallback.id, name: fallback.name, reason: "Solid backup option" };
 }
 
@@ -190,10 +213,14 @@ export function buildWeekPlanViewModel(params: {
 
   // Best window v0: just the best day (we’ll upgrade to best 2–3 day stretches next).
   const bestISO = String(outlook.bestDay.dateISO);
+
+  const topPicks = pickTopTwoDayPicks(daysVM);
+
   const summaryBestOverall = pickBestOverallResort({
     days: outlook.days,
     resorts,
   });
+
   const backup = pickBackupResort({
     bestOverallId: summaryBestOverall.id,
     resorts,
@@ -205,9 +232,10 @@ export function buildWeekPlanViewModel(params: {
     `Top pick: ${String(outlook.bestDay.best?.resortName ?? summaryBestOverall.name)}. ` +
     `Backup: ${backup.name}.`;
 
-  const vm: WeekPlanViewModel = {
+  return {
     summary: {
       bestWindow: { startISO: bestISO, endISO: bestISO, label: bestISO },
+      topPicks,
       bestOverallResort: summaryBestOverall,
       backupResort: backup,
       narrative,
@@ -215,6 +243,4 @@ export function buildWeekPlanViewModel(params: {
     days: daysVM,
     resorts: computeWeekTags({ daysVM, resorts }),
   };
-
-  return vm;
 }

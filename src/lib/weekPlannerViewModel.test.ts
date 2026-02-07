@@ -39,6 +39,11 @@ describe("buildWeekPlanViewModel", () => {
 
     // Summary contract
     expect(vm.summary.bestWindow.startISO).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+
+    expect(vm.summary.topPicks.length).toBeGreaterThanOrEqual(1);
+    expect(vm.summary.topPicks.length).toBeLessThanOrEqual(2);
+    expect(typeof vm.summary.topPicks[0].dateISO).toBe("string");
+    expect(typeof vm.summary.topPicks[0].resortName).toBe("string");
     expect(vm.summary.bestWindow.endISO).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(typeof vm.summary.narrative).toBe("string");
     expect(vm.summary.narrative.length).toBeGreaterThan(0);

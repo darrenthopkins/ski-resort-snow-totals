@@ -316,10 +316,17 @@ export default function Snow() {
               <IonLabel>
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   <div style={{ fontWeight: 700 }}>Week plan (v0)</div>
-                  <div><strong>Best window:</strong> {weekVM.summary.bestWindow.label}</div>
-                  <div><strong>Best overall:</strong> {weekVM.summary.bestOverallResort.name}</div>
-                  <div><strong>Backup:</strong> {weekVM.summary.backupResort.name} — {weekVM.summary.backupResort.reason}</div>
-                  <div style={{ opacity: 0.85 }}>{weekVM.summary.narrative}</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    <div style={{ fontWeight: 800 }}>Top picks</div>
+                    <div>
+                      <strong>1)</strong> {weekVM.summary.topPicks[0].dateISO} — {weekVM.summary.topPicks[0].resortName} — {weekVM.summary.topPicks[0].label.toUpperCase()} ({weekVM.summary.topPicks[0].score})
+                    </div>
+                    {weekVM.summary.topPicks.length > 1 && (
+                      <div>
+                        <strong>2)</strong> {weekVM.summary.topPicks[1].dateISO} — {weekVM.summary.topPicks[1].resortName} — {weekVM.summary.topPicks[1].label.toUpperCase()} ({weekVM.summary.topPicks[1].score})
+                      </div>
+                    )}
+                  </div>
 
                   {/* Timeline strip (v0) */}
                   <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 8, WebkitOverflowScrolling: "touch" }}>
