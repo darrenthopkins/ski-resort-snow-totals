@@ -208,6 +208,34 @@ export default function Snow() {
     });
   }, [outlook, driveMilesById]);
 
+  // --- Week timeline selection (v0) ---
+  const [selectedDateISO, setSelectedDateISO] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!weekVM) return;
+    setSelectedDateISO((prev) => prev ?? weekVM.summary.bestWindow.startISO ?? weekVM.days[0]?.dateISO ?? null);
+  }, [weekVM]);
+
+  const selectedDay = useMemo(() => {
+    if (!weekVM) return null;
+    const key = selectedDateISO ?? weekVM.summary.bestWindow.startISO ?? weekVM.days[0]?.dateISO ?? null;
+    if (!key) return null;
+    return weekVM.days.find((d) => d.dateISO === key) ?? weekVM.days[0] ?? null;
+  }, [weekVM, selectedDateISO]);
+
+  function dayOfWeekShort(dateISO: string): string {
+    const [y, m, d] = dateISO.split("-").map(Number);
+    const dt = new Date(y, (m ?? 1) - 1, d ?? 1);
+    return dt.toLocaleDateString(undefined, { weekday: "short" });
+  }
+
+  function labelColors(label: "green" | "yellow" | "red") {
+    if (label === "green") return { bg: "#1f7a1f", border: "#2aa52a" };
+    if (label === "red") return { bg: "#7a1f1f", border: "#a52a2a" };
+    return { bg: "#7a5a1f", border: "#a57b2a" };
+  }
+
+
 
 
 
@@ -236,15 +264,15 @@ export default function Snow() {
 
   const headerNote = useMemo(() => {
 
-function retryLocation() {
-  try {
-    localStorage.removeItem(LS_GEO_ERR);
-    localStorage.removeItem(LS_GEO_LAST);
-  } catch {
-    // ignore
+  function retryLocation() {
+    try {
+      localStorage.removeItem(LS_GEO_ERR);
+      localStorage.removeItem(LS_GEO_LAST);
+    } catch {
+      // ignore
+    }
+    window.location.reload();
   }
-  window.location.reload();
-}
 
     if (geo.status === "loading")
       return <IonNote>Getting your location…</IonNote>;
@@ -290,6 +318,101 @@ function retryLocation() {
                   <div><strong>Best overall:</strong> {weekVM.summary.bestOverallResort.name}</div>
                   <div><strong>Backup:</strong> {weekVM.summary.backupResort.name} — {weekVM.summary.backupResort.reason}</div>
                   <div style={{ opacity: 0.85 }}>{weekVM.summary.narrative}</div>
+
+                  {/* Timeline strip (v0) */}
+                  <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 8, WebkitOverflowScrolling: "touch" }}>
+                    {weekVM.days.map((d) => {
+                      const isSelected = d.dateISO === selectedDay?.dateISO;
+                      const c = labelColors(d.label);
+                      return (
+                        <button
+                          key={d.dateISO}
+                          onClick={() => setSelectedDateISO(d.dateISO)}
+                          style={{
+                            all: "unset",
+                            cursor: "pointer",
+                            flex: "0 0 auto",
+                            borderRadius: 14,
+                            border: `1px solid ${isSelected ? "#ffffff55" : "#ffffff22"}`,
+                            background: isSelected ? "#ffffff10" : "transparent",
+                            padding: 10,
+                            minWidth: 140,
+                          }}
+                          title={`${d.dateISO} • ${d.topPick.resortName} • ${d.topPick.score}`}
+                          aria-label={`Select ${d.dateISO}`}
+                        >
+                          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                              <div style={{ fontSize: 12, opacity: 0.9 }}>{dayOfWeekShort(d.dateISO)}</div>
+                              <div style={{ fontSize: 12, opacity: 0.8 }}>{d.dateISO}</div>
+                            </div>
+
+                            <div
+                              style={{
+                                display: "inline-flex",
+                                alignSelf: "flex-start",
+                                padding: "6px 10px",
+                                borderRadius: 999,
+                                background: c.bg,
+                                border: `1px solid ${c.border}`,
+                                fontWeight: 800,
+                                fontSize: 12,
+                                letterSpacing: 0.3,
+                              }}
+                            >
+                              {d.label.toUpperCase()}
+                            </div>
+
+                            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                              <div style={{ fontWeight: 700, lineHeight: 1.15 }}>{d.topPick.resortName}</div>
+                              <div style={{ fontSize: 12, opacity: 0.85 }}>
+                                Score: <span style={{ fontWeight: 700 }}>{d.topPick.score}</span>
+                              </div>
+                            </div>
+
+                            {d.runnersUp.length > 0 && (
+                              <div style={{ fontSize: 12, opacity: 0.75 }}>
+                                Next: {d.runnersUp.map((r) => r.resortName).join(", ")}
+                              </div>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Selected day details */}
+                  {selectedDay && (
+                    <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 6 }}>
+                      <div style={{ fontWeight: 800 }}>
+                        {dayOfWeekShort(selectedDay.dateISO)} {selectedDay.dateISO} — {selectedDay.label.toUpperCase()} ({selectedDay.topPick.score})
+                      </div>
+
+                      <div><strong>Top pick:</strong> {selectedDay.topPick.resortName}</div>
+
+                      {selectedDay.runnersUp.length > 0 && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                          <strong>Runners up:</strong>
+                          <div style={{ opacity: 0.9 }}>
+                            {selectedDay.runnersUp.map((r) => (
+                              <div key={r.resortId}>• {r.resortName} — {r.label.toUpperCase()} ({r.score})</div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {selectedDay.bullets.length > 0 && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                          <strong>Why:</strong>
+                          <div style={{ opacity: 0.9 }}>
+                            {selectedDay.bullets.map((b, i) => (
+                              <div key={i}>• {b}</div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </IonLabel>
             </IonItem>
