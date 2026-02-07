@@ -187,6 +187,17 @@ export default function Snow() {
     return m;
   }, [resortsWithMiles]);
 
+  function retryLocation() {
+    try {
+      localStorage.removeItem(LS_GEO_ERR);
+      localStorage.removeItem(LS_GEO_LAST);
+    } catch {
+      // ignore
+    }
+    window.location.reload();
+  }
+
+
   const outlook = useMemo(() => {
     if (snowLoading) return null;
     if (!snowById || Object.keys(snowById).length === 0) return null;
@@ -264,15 +275,8 @@ export default function Snow() {
 
   const headerNote = useMemo(() => {
 
-  function retryLocation() {
-    try {
-      localStorage.removeItem(LS_GEO_ERR);
-      localStorage.removeItem(LS_GEO_LAST);
-    } catch {
-      // ignore
-    }
-    window.location.reload();
-  }
+
+
 
     if (geo.status === "loading")
       return <IonNote>Getting your location…</IonNote>;
