@@ -37,6 +37,46 @@ describe("buildWeekPlanViewModel", () => {
       },
     });
 
+    // Decision contract (single UI boundary)
+    expect(vm.summary.decision).toBeTruthy();
+
+    const decision = vm.summary.decision;
+
+    // decision.picks: 1–2 items with correct shape
+    expect(Array.isArray(decision.picks)).toBe(true);
+    expect(decision.picks.length).toBeGreaterThanOrEqual(1);
+    expect(decision.picks.length).toBeLessThanOrEqual(2);
+
+    for (const p of decision.picks) {
+      expect(p.dateISO).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(typeof p.resortId).toBe("string");
+      expect(typeof p.resortName).toBe("string");
+      expect(["green", "yellow", "red"]).toContain(p.label);
+      expect(typeof p.score).toBe("number");
+    }
+
+    // decision.window should reflect the pick date range (not a single bestISO)
+    expect(decision.window.startISO).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(decision.window.endISO).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(typeof decision.window.label).toBe("string");
+    expect(decision.window.label.length).toBeGreaterThan(0);
+
+    const pickISOs = decision.picks.map((p) => p.dateISO).sort();
+    expect(decision.window.startISO).toBe(pickISOs[0]);
+    expect(decision.window.endISO).toBe(pickISOs[pickISOs.length - 1]);
+
+    // While bestWindow still exists, it must match the decision window
+    expect(vm.summary.bestWindow).toEqual(decision.window);
+
+    // decision.why: bullet-safe (max 3) and non-empty strings
+    expect(Array.isArray(decision.why)).toBe(true);
+    expect(decision.why.length).toBeGreaterThan(0);
+    expect(decision.why.length).toBeLessThanOrEqual(3);
+    for (const b of decision.why) {
+      expect(typeof b).toBe("string");
+      expect(b.trim().length).toBeGreaterThan(0);
+    }
+
     // Summary contract
     expect(vm.summary.bestWindow.startISO).toMatch(/^\d{4}-\d{2}-\d{2}$/);
 
@@ -66,7 +106,7 @@ describe("buildWeekPlanViewModel", () => {
       expect(Array.isArray(d.runnersUp)).toBe(true);
       expect(d.runnersUp.length).toBeLessThanOrEqual(2);
       expect(Array.isArray(d.bullets)).toBe(true);
-      expect(d.bullets.length).toBeGreaterThan(0);
+      expect(d.bullets.length).toBeLessThanOrEqual(3);
     }
 
     // Resorts contract

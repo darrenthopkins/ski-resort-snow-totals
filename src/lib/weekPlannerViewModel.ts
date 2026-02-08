@@ -4,6 +4,7 @@ type Label = "green" | "yellow" | "red";
 
 export type WeekPlanViewModel = {
   summary: {
+    decision: WeekDecision;
     bestWindow: { startISO: string; endISO: string; label: string };
     topPicks: Array<{
       dateISO: string;
@@ -19,8 +20,18 @@ export type WeekPlanViewModel = {
   days: Array<{
     dateISO: string;
     label: Label;
-    topPick: { resortId: string; resortName: string; score: number; label: Label };
-    runnersUp: Array<{ resortId: string; resortName: string; score: number; label: Label }>;
+    topPick: {
+      resortId: string;
+      resortName: string;
+      score: number;
+      label: Label;
+    };
+    runnersUp: Array<{
+      resortId: string;
+      resortName: string;
+      score: number;
+      label: Label;
+    }>;
     bullets: string[];
   }>;
   resorts: Array<{
@@ -28,6 +39,19 @@ export type WeekPlanViewModel = {
     resortName: string;
     weekTag: "steady" | "peaky" | "skip";
   }>;
+};
+
+export type WeekDecision = {
+  picks: Array<{
+    dateISO: string;
+    resortId: string;
+    resortName: string;
+    label: Label;
+    score: number;
+  }>;
+  backup?: { resortId: string; resortName: string; reason: string };
+  window: { startISO: string; endISO: string; label: string };
+  why: string[]; // short bullets for the hero card
 };
 
 function normalizeLabel(x: any): Label {
@@ -54,7 +78,11 @@ function pickTopTwoDayPicks(daysVM: WeekPlanViewModel["days"]) {
 function pickBestOverallResort(params: {
   days: Array<{
     best: { resortId: string; resortName: string; result: { score: number } };
-    topResorts: Array<{ resortId: string; resortName: string; result: { score: number } }>;
+    topResorts: Array<{
+      resortId: string;
+      resortName: string;
+      result: { score: number };
+    }>;
   }>;
   resorts: Resort[];
 }) {
@@ -113,7 +141,11 @@ function pickBackupResort(params: {
 
   // Fallback: second resort in list (stable, deterministic v0)
   const fallback = resorts.find((r) => r.id !== bestOverallId) ?? resorts[0];
-  return { id: fallback.id, name: fallback.name, reason: "Solid backup option" };
+  return {
+    id: fallback.id,
+    name: fallback.name,
+    reason: "Solid backup option",
+  };
 }
 
 function computeWeekTags(params: {
@@ -160,6 +192,17 @@ function computeWeekTags(params: {
   return out;
 }
 
+function windowLabel(startISO: string, endISO: string) {
+  const dow = (iso: string) => {
+    const [y, m, d] = iso.split("-").map(Number);
+    const dt = new Date(y, (m ?? 1) - 1, d ?? 1);
+    return dt.toLocaleDateString(undefined, { weekday: "short" });
+  };
+  return startISO === endISO
+    ? dow(startISO)
+    : `${dow(startISO)}–${dow(endISO)}`;
+}
+
 /**
  * Build a UI-ready week planner view model on top of the existing buildWeekPlan() output.
  * This is the "planner output contract" the UI should depend on.
@@ -194,7 +237,9 @@ export function buildWeekPlanViewModel(params: {
           }))
       : [];
 
-    const reasons: string[] = Array.isArray(best?.result?.reasons) ? best.result.reasons : [];
+    const reasons: string[] = Array.isArray(best?.result?.reasons)
+      ? best.result.reasons
+      : [];
     const bullets = reasons.slice(0, 3);
 
     return {
@@ -207,7 +252,10 @@ export function buildWeekPlanViewModel(params: {
         label: bestLabel,
       },
       runnersUp: runners,
-      bullets: bullets.length ? bullets : ["Planner score based on snow + risk + crowds + travel"],
+      bullets: (bullets.length
+        ? bullets
+        : ["Planner score based on snow + risk + crowds + travel"]
+      ).slice(0, 3),
     };
   });
 
@@ -232,9 +280,57 @@ export function buildWeekPlanViewModel(params: {
     `Top pick: ${String(outlook.bestDay.best?.resortName ?? summaryBestOverall.name)}. ` +
     `Backup: ${backup.name}.`;
 
+  const picks = (topPicks.length ? topPicks : pickTopTwoDayPicks(daysVM)).slice(
+    0,
+    2,
+  );
+
+  const pickISOs = picks.map((p) => p.dateISO).sort();
+  const windowStartISO = pickISOs[0] ?? bestISO;
+  const windowEndISO = pickISOs[pickISOs.length - 1] ?? bestISO;
+
+  const window = {
+    startISO: windowStartISO,
+    endISO: windowEndISO,
+    label: windowLabel(windowStartISO, windowEndISO),
+  };
+
+  const backupDecision = backup?.id
+    ? { resortId: backup.id, resortName: backup.name, reason: backup.reason }
+    : undefined;
+
+  // Hero “why” bullets: use selected day bullets if available, else fall back to narrative.
+  const why = picks.length
+    ? (daysVM.find((d) => d.dateISO === picks[0].dateISO)?.bullets ?? []).slice(
+        0,
+        3,
+      )
+    : [];
+
+  // Bullet-safe fallback for the hero card (vacation full days)
+  const defaultWhy = [
+    "Midweek timing keeps crowds manageable",
+    "Drive stays reasonable for a full-day trip",
+    "Conditions look stable enough to plan ahead",
+  ];
+
+  const decision: WeekDecision = {
+    window,
+    picks: picks.map((p) => ({
+      dateISO: p.dateISO,
+      resortId: p.resortId,
+      resortName: p.resortName,
+      label: p.label,
+      score: p.score,
+    })),
+    backup: backupDecision,
+    why: why.length ? why.slice(0, 3) : defaultWhy, // we’ll improve this next
+  };
+
   return {
     summary: {
-      bestWindow: { startISO: bestISO, endISO: bestISO, label: bestISO },
+      decision,
+      bestWindow: decision.window,
       topPicks,
       bestOverallResort: summaryBestOverall,
       backupResort: backup,
