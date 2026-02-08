@@ -53,17 +53,14 @@ export function buildWeekPlan(params: BuildPlanParams): WeekOutlook {
       const recentSnow = last48 == null ? 0 : last48 / 2;
       const forecastSnow = next24 == null ? 0 : next24;
 
-      const newSnowInches =
-        i === 0 ? recentSnow :
-        i === 1 ? forecastSnow :
-        0;
+      const newSnowInches = i === 0 ? recentSnow : i === 1 ? forecastSnow : 0;
 
       const facts: DayFacts = {
         newSnowInches,
         baseDepthInches: 30,
-        minTempF: 15,
-        maxTempF: 28,
-        maxWindMph: 8,
+        minTempF: m?.minTempF ?? 18,
+        maxTempF: m?.maxTempF ?? 34,
+        maxWindMph: m?.maxWindMph ?? 15,
         isWeekend,
         driveMiles: driveMilesByResortId?.[r.id],
       };
@@ -80,7 +77,10 @@ export function buildWeekPlan(params: BuildPlanParams): WeekOutlook {
   return buildWeekOutlook(candidates, topNPerDay);
 }
 
-export function buildDateRangeISO(startDateISO: string, days: number): string[] {
+export function buildDateRangeISO(
+  startDateISO: string,
+  days: number,
+): string[] {
   const [y, m, d] = startDateISO.split("-").map((x) => Number(x));
   if (!y || !m || !d) throw new Error(`Invalid startDateISO: ${startDateISO}`);
 
