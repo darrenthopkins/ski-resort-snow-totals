@@ -12,7 +12,11 @@ export type SnowMetrics = {
   last48In: number | null;
   next24In: number | null;
 
-  // new: per-metric provenance
+  // NEW: NWS-derived next-24 weather facts for confidence scoring
+  minTempF?: number | null;
+  maxTempF?: number | null;
+  maxWindMph?: number | null;
+
   last48Meta?: MetricMeta;
   next24Meta?: MetricMeta;
 };

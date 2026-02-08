@@ -65,6 +65,11 @@ export class RealSnowService implements SnowService {
         const v: SnowMetrics = {
           last48In: last48?.last48In ?? null,
           next24In: nws.next24In,
+
+          minTempF: nws.minTempF ?? null,
+          maxTempF: nws.maxTempF ?? null,
+          maxWindMph: nws.maxWindMph ?? null,
+
           last48Meta: last48
             ? {
                 source: "resort",
