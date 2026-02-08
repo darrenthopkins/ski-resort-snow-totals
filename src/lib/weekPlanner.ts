@@ -3,7 +3,7 @@ import type { SnowMetrics } from "../services/snow/types";
 import type { DayFacts } from "./confidence";
 import type { ResortDayCandidate, WeekOutlook } from "./weekOutlook";
 import { buildWeekOutlook } from "./weekOutlook";
-import { isoDateIsWeekend } from "./snowMetricsAdapter";
+import { snowMetricsToCandidates } from "./snowMetricsAdapter";
 
 export type BuildPlanParams = {
   resorts: Resort[];
@@ -40,38 +40,19 @@ export function buildWeekPlan(params: BuildPlanParams): WeekOutlook {
   const dateISOs = buildDateRangeISO(startDateISO, days);
 
   const candidates: ResortDayCandidate[] = [];
+
   for (let i = 0; i < dateISOs.length; i++) {
     const dateISO = dateISOs[i];
-    const isWeekend = isoDateIsWeekend(dateISO);
 
-    for (const r of resorts) {
-      const m = metricsByResortId[r.id];
-
-      const last48 = m?.last48In ?? null;
-      const next24 = m?.next24In ?? null;
-
-      const recentSnow = last48 == null ? 0 : last48 / 2;
-      const forecastSnow = next24 == null ? 0 : next24;
-
-      const newSnowInches = i === 0 ? recentSnow : i === 1 ? forecastSnow : 0;
-
-      const facts: DayFacts = {
-        newSnowInches,
-        baseDepthInches: 30,
-        minTempF: m?.minTempF ?? 18,
-        maxTempF: m?.maxTempF ?? 34,
-        maxWindMph: m?.maxWindMph ?? 15,
-        isWeekend,
-        driveMiles: driveMilesByResortId?.[r.id],
-      };
-
-      candidates.push({
-        resortId: r.id,
-        resortName: r.name,
+    candidates.push(
+      ...snowMetricsToCandidates({
+        resorts,
+        metricsByResortId,
         dateISO,
-        facts,
-      });
-    }
+        dayIndex: i,
+        driveMilesByResortId,
+      }),
+    );
   }
 
   return buildWeekOutlook(candidates, topNPerDay);

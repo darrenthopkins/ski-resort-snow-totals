@@ -17,8 +17,18 @@ export function snowMetricsToCandidates(params: {
   metricsByResortId: Record<string, SnowMetrics>;
   /** The day these candidates represent, ISO: YYYY-MM-DD */
   dateISO: string;
+  /** 0..N within the planning window (lets us do day0 recent / day1 forecast / rest 0) */
+  dayIndex?: number;
+  /** Optional drive miles per resort id (lets UI personalize without changing SnowService) */
+  driveMilesByResortId?: Record<string, number>;
 }): ResortDayCandidate[] {
-  const { resorts, metricsByResortId, dateISO } = params;
+  const {
+    resorts,
+    metricsByResortId,
+    dateISO,
+    dayIndex,
+    driveMilesByResortId,
+  } = params;
 
   const isWeekend = isoDateIsWeekend(dateISO);
 
@@ -31,16 +41,26 @@ export function snowMetricsToCandidates(params: {
     const estimatedLast24 = last48 == null ? 0 : last48 / 2;
     const forecastNext24 = next24 == null ? 0 : next24;
 
-    const newSnowInches = estimatedLast24 + forecastNext24;
+    // Back-compat default (v0): combined signal for a single day card
+    // Week planner passes dayIndex explicitly to get the honest projection model.
+    const newSnowInches =
+      dayIndex == null
+        ? estimatedLast24 + forecastNext24
+        : dayIndex === 0
+          ? estimatedLast24
+          : dayIndex === 1
+            ? forecastNext24
+            : 0;
 
     // Defaults (until we add base/temp/wind sources):
     const facts: DayFacts = {
       newSnowInches,
       baseDepthInches: 30, // neutral-ish "solid base" default
-      minTempF: 15,
-      maxTempF: 28,        // ideal-ish to avoid penalizing unknowns
-      maxWindMph: 8,       // light wind default
+      minTempF: m?.minTempF ?? 18,
+      maxTempF: m?.maxTempF ?? 34,
+      maxWindMph: m?.maxWindMph ?? 15,
       isWeekend,
+      driveMiles: driveMilesByResortId?.[r.id],
     };
 
     return {
