@@ -1,8 +1,21 @@
-import type { Resort } from '../../data/resorts';
+import type { Resort } from "../../data/resorts";
 
 type NwsPointsResponse = {
   properties: {
     forecastGridData: string; // URL
+    forecast: string; // URL (JSON forecast with periods)
+  };
+};
+
+type NwsForecastResponse = {
+  properties: {
+    updated?: string; // ISO
+    periods: Array<{
+      startTime: string; // ISO
+      endTime: string; // ISO
+      temperature: number; // F (per NWS API default)
+      windSpeed: string; // e.g. "5 to 10 mph" / "15 mph"
+    }>;
   };
 };
 
@@ -17,8 +30,10 @@ type NwsGridResponse = {
 };
 
 // validTime looks like: 2019-07-04T18:00:00+00:00/PT3H
-function parseValidTimeInterval(validTime: string): { start: Date; end: Date } | null {
-  const [startStr, durStr] = validTime.split('/');
+function parseValidTimeInterval(
+  validTime: string,
+): { start: Date; end: Date } | null {
+  const [startStr, durStr] = validTime.split("/");
   if (!startStr || !durStr) return null;
 
   const start = new Date(startStr);
@@ -44,47 +59,107 @@ function inchesFromUom(value: number, uom?: string): number {
   if (!uom) return value;
 
   const u = uom.toLowerCase();
-  if (u.includes('wmoUnit:mm') || u.endsWith(':mm') || u.endsWith('/mm') || u.endsWith('mm')) {
+  if (
+    u.includes("wmoUnit:mm") ||
+    u.endsWith(":mm") ||
+    u.endsWith("/mm") ||
+    u.endsWith("mm")
+  ) {
     return value / 25.4;
   }
-  if (u.includes('wmoUnit:cm') || u.endsWith(':cm') || u.endsWith('/cm') || u.endsWith('cm')) {
+  if (
+    u.includes("wmoUnit:cm") ||
+    u.endsWith(":cm") ||
+    u.endsWith("/cm") ||
+    u.endsWith("cm")
+  ) {
     return (value * 10) / 25.4;
   }
-  if (u.includes('wmoUnit:m') || u.endsWith(':m') || u.endsWith('/m') || u.endsWith(' m')) {
+  if (
+    u.includes("wmoUnit:m") ||
+    u.endsWith(":m") ||
+    u.endsWith("/m") ||
+    u.endsWith(" m")
+  ) {
     return (value * 1000) / 25.4;
   }
   return value;
 }
 
-function overlapFraction(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date): number {
+function overlapFraction(
+  aStart: Date,
+  aEnd: Date,
+  bStart: Date,
+  bEnd: Date,
+): number {
   const start = Math.max(aStart.getTime(), bStart.getTime());
   const end = Math.min(aEnd.getTime(), bEnd.getTime());
   if (end <= start) return 0;
   return (end - start) / (aEnd.getTime() - aStart.getTime());
 }
 
+function parseWindSpeedMph(windSpeed: string): number | null {
+  // Examples: "5 to 10 mph", "15 mph", "10 to 20 mph", "Calm"
+  const s = (windSpeed || "").toLowerCase();
+  if (!s || s.includes("calm")) return 0;
+
+  // Pull all integers; choose the max
+  const nums =
+    s
+      .match(/\d+/g)
+      ?.map((n) => Number(n))
+      .filter((n) => !Number.isNaN(n)) ?? [];
+  if (!nums.length) return null;
+  return Math.max(...nums);
+}
+
+function overlapMillis(
+  aStart: Date,
+  aEnd: Date,
+  bStart: Date,
+  bEnd: Date,
+): number {
+  const start = Math.max(aStart.getTime(), bStart.getTime());
+  const end = Math.min(aEnd.getTime(), bEnd.getTime());
+  return Math.max(0, end - start);
+}
+
 export async function getNext24SnowInches(resort: Resort): Promise<{
   next24In: number | null;
+  minTempF: number | null;
+  maxTempF: number | null;
+  maxWindMph: number | null;
   updatedAt: string;
   sourceUrl: string;
 }> {
-  // 1) Convert lat/lon -> forecastGridData URL via /points
+  // 1) Convert lat/lon -> URLs via /points
   const pointsUrl = `https://api.weather.gov/points/${resort.lat},${resort.lon}`;
   const pointsResp = await fetch(pointsUrl, {
-    headers: { Accept: 'application/geo+json' },
+    headers: { Accept: "application/geo+json" },
   });
   if (!pointsResp.ok) {
-    throw new Error(`NWS points failed ${pointsResp.status} for ${resort.name}`);
+    throw new Error(
+      `NWS points failed ${pointsResp.status} for ${resort.name}`,
+    );
   }
   const pointsJson = (await pointsResp.json()) as NwsPointsResponse;
   const gridUrl = pointsJson?.properties?.forecastGridData;
+  const forecastUrl = pointsJson?.properties?.forecast;
+
   if (!gridUrl) {
     throw new Error(`NWS points missing forecastGridData for ${resort.name}`);
   }
+  if (!forecastUrl) {
+    throw new Error(`NWS points missing forecast URL for ${resort.name}`);
+  }
 
-  // 2) Fetch grid data which includes snowfallAmount layer
+  // Time window: now -> now+24h
+  const now = new Date();
+  const end = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+
+  // 2) Fetch grid data (snowfallAmount)
   const gridResp = await fetch(gridUrl, {
-    headers: { Accept: 'application/geo+json' },
+    headers: { Accept: "application/geo+json" },
   });
   if (!gridResp.ok) {
     throw new Error(`NWS grid failed ${gridResp.status} for ${resort.name}`);
@@ -95,11 +170,8 @@ export async function getNext24SnowInches(resort: Resort): Promise<{
   const values = layer?.values ?? [];
   const uom = layer?.uom;
 
-  const now = new Date();
-  const end = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-
   let totalIn = 0;
-  let any = false;
+  let anySnow = false;
 
   for (const v of values) {
     if (v.value == null) continue;
@@ -109,18 +181,58 @@ export async function getNext24SnowInches(resort: Resort): Promise<{
     const frac = overlapFraction(iv.start, iv.end, now, end);
     if (frac <= 0) continue;
 
-    // Values are amounts over the interval; prorate for partial overlap
     const inches = inchesFromUom(v.value, uom) * frac;
     totalIn += inches;
-    any = true;
+    anySnow = true;
   }
 
-  const updateTime = gridJson?.properties?.updateTime;
-  const updatedAt = updateTime ? new Date(updateTime).toLocaleString() : 'NWS';
+  // 3) Fetch forecast periods (temp + wind)
+  const fcResp = await fetch(forecastUrl, {
+    headers: { Accept: "application/geo+json" },
+  });
+  if (!fcResp.ok) {
+    throw new Error(`NWS forecast failed ${fcResp.status} for ${resort.name}`);
+  }
+  const fcJson = (await fcResp.json()) as NwsForecastResponse;
+  const periods = fcJson?.properties?.periods ?? [];
+
+  let minTempF: number | null = null;
+  let maxTempF: number | null = null;
+  let maxWindMph: number | null = null;
+
+  for (const p of periods) {
+    const ps = new Date(p.startTime);
+    const pe = new Date(p.endTime);
+    if (Number.isNaN(ps.getTime()) || Number.isNaN(pe.getTime())) continue;
+
+    // only consider periods that overlap now..end
+    if (overlapMillis(ps, pe, now, end) <= 0) continue;
+
+    const t = p.temperature;
+    if (typeof t === "number" && !Number.isNaN(t)) {
+      minTempF = minTempF == null ? t : Math.min(minTempF, t);
+      maxTempF = maxTempF == null ? t : Math.max(maxTempF, t);
+    }
+
+    const w = parseWindSpeedMph(p.windSpeed);
+    if (w != null) {
+      maxWindMph = maxWindMph == null ? w : Math.max(maxWindMph, w);
+    }
+  }
+
+  // 4) updatedAt + sourceUrl
+  const forecastUpdated = fcJson?.properties?.updated;
+  const updatedAtISO = forecastUpdated ?? gridJson?.properties?.updateTime;
+  const updatedAt = updatedAtISO
+    ? new Date(updatedAtISO).toLocaleString()
+    : "NWS";
 
   return {
-    next24In: any ? Math.round(totalIn * 10) / 10 : null, // 0.1" precision
+    next24In: anySnow ? Math.round(totalIn * 10) / 10 : null,
+    minTempF,
+    maxTempF,
+    maxWindMph,
     updatedAt,
-    sourceUrl: gridUrl,
+    sourceUrl: gridUrl, // you can also include forecastUrl elsewhere if desired
   };
 }
