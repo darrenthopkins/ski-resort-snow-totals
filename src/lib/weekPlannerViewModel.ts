@@ -203,6 +203,30 @@ function windowLabel(startISO: string, endISO: string) {
     : `${dow(startISO)}–${dow(endISO)}`;
 }
 
+import type { DayFacts } from "./confidence";
+
+function truthBulletsFromFacts(facts?: DayFacts): string[] {
+  if (!facts) return [];
+
+  const out: string[] = [];
+
+  // Snow
+  out.push(
+    `Snow signal: ${facts.newSnowInches.toFixed(1)}" (last24+next24 proxy)`,
+  );
+
+  // Weather
+  out.push(
+    `${facts.minTempF}–${facts.maxTempF}°F · wind ≤ ${facts.maxWindMph} mph`,
+  );
+
+  // Drive (optional)
+  if (facts.driveMiles != null)
+    out.push(`Drive ~${Math.round(facts.driveMiles)} mi`);
+
+  return out.slice(0, 3);
+}
+
 /**
  * Build a UI-ready week planner view model on top of the existing buildWeekPlan() output.
  * This is the "planner output contract" the UI should depend on.
@@ -237,10 +261,11 @@ export function buildWeekPlanViewModel(params: {
           }))
       : [];
 
+    const truthBullets = truthBulletsFromFacts(best?.result?.facts);
     const reasons: string[] = Array.isArray(best?.result?.reasons)
       ? best.result.reasons
       : [];
-    const bullets = reasons.slice(0, 3);
+    const bullets = (truthBullets.length ? truthBullets : reasons).slice(0, 3);
 
     return {
       dateISO: String(d.dateISO),
