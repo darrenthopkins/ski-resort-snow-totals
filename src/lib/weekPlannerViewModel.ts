@@ -1,4 +1,5 @@
 import type { Resort } from "../data/resorts";
+import type { DayFacts } from "./confidence";
 
 type Label = "green" | "yellow" | "red";
 
@@ -203,8 +204,6 @@ function windowLabel(startISO: string, endISO: string) {
     : `${dow(startISO)}–${dow(endISO)}`;
 }
 
-import type { DayFacts } from "./confidence";
-
 function truthBulletsFromFacts(facts?: DayFacts): string[] {
   if (!facts) return [];
 
@@ -261,10 +260,13 @@ export function buildWeekPlanViewModel(params: {
           }))
       : [];
 
+    const truthFacts = best?.result?.facts as DayFacts | undefined;
     const truthBullets = truthBulletsFromFacts(best?.result?.facts);
+
     const reasons: string[] = Array.isArray(best?.result?.reasons)
       ? best.result.reasons
       : [];
+
     const bullets = (truthBullets.length ? truthBullets : reasons).slice(0, 3);
 
     return {
