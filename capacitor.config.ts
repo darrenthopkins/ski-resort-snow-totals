@@ -1,9 +1,9 @@
-import type { CapacitorConfig } from '@capacitor/cli';
+import type { CapacitorConfig } from "@capacitor/cli";
 
 const config: CapacitorConfig = {
-  appId: 'io.ionic.starter',
-  appName: 'ski-resort-snow-totals',
-  webDir: 'dist'
+  appId: "com.dhopkins.skiresortsnowtotals",
+  appName: "ski-resort-snow-totals",
+  webDir: "dist",
 };
 
 export default config;
