@@ -49,6 +49,52 @@ function fmtInches(v: number | null) {
 function fmtMiles(v: number) {
   return `${Math.round(v)} mi`;
 }
+function firstNonNull<T>(xs: Array<T | null | undefined>): T | null {
+  for (const x of xs) if (x != null) return x;
+  return null;
+}
+
+function buildProvenanceLine(
+  snowById: Record<string, SnowMetrics>,
+  resortIds: string[],
+): string | null {
+  if (!resortIds.length) return null;
+
+  const next24 = firstNonNull(
+    resortIds.map((id) => snowById[id]?.next24Meta?.updatedAt),
+  );
+  const last48 = firstNonNull(
+    resortIds.map((id) => snowById[id]?.last48Meta?.updatedAt),
+  );
+
+  if (!next24 && !last48) return null;
+
+  const parts: string[] = [];
+  if (next24) parts.push(`NWS ${next24}`);
+  if (last48) parts.push(`Resort ${last48}`);
+  return parts.join(" · ");
+}
+
+function metaLineForResorts(
+  snowById: Record<string, SnowMetrics>,
+  resortIds: string[],
+): string | null {
+  if (!resortIds.length) return null;
+
+  const next24 = firstNonNull(
+    resortIds.map((id) => snowById[id]?.next24Meta?.updatedAt),
+  );
+  const last48 = firstNonNull(
+    resortIds.map((id) => snowById[id]?.last48Meta?.updatedAt),
+  );
+
+  if (!next24 && !last48) return null;
+
+  const parts: string[] = [];
+  if (next24) parts.push(`NWS ${next24}`);
+  if (last48) parts.push(`Resort ${last48}`);
+  return parts.join(" · ");
+}
 
 function readJson<T>(key: string): T | null {
   try {
@@ -263,9 +309,9 @@ export default function Snow() {
   }
 
   function labelPhrase(label: "green" | "yellow" | "red") {
-    if (label === "green") return "Lock it in";
-    if (label === "red") return "Wait";
-    return "Good bet";
+    if (label === "green") return "Go";
+    if (label === "yellow") return "Wait / Watch";
+    return "Skip";
   }
 
   function rollupLabel(
@@ -341,6 +387,13 @@ export default function Snow() {
                   {(() => {
                     const decision = weekVM.summary.decision;
                     const picks = decision.picks ?? [];
+                    const pickResortIds = Array.from(
+                      new Set(picks.map((p) => p.resortId)),
+                    );
+                    const provenanceLine = buildProvenanceLine(
+                      snowById,
+                      pickResortIds,
+                    );
                     const labels = picks.map((p) => p.label);
                     const overall = rollupLabel(labels);
                     const overallColors = labelColors(overall);
@@ -386,6 +439,17 @@ export default function Snow() {
                             {windowText}
                           </div>
                         </div>
+                        {provenanceLine ? (
+                          <div
+                            style={{
+                              fontSize: 11,
+                              opacity: 0.55,
+                              marginTop: -6,
+                            }}
+                          >
+                            {provenanceLine}
+                          </div>
+                        ) : null}
 
                         {/* Primary recommendation */}
                         {sameResort ? (
@@ -752,6 +816,18 @@ export default function Snow() {
                 <strong>Filter</strong>
                 <IonBadge>{MAX_MILES} miles</IonBadge>
                 {headerNote}
+                <IonButton
+                  size="small"
+                  fill="outline"
+                  onClick={() => {
+                    try {
+                      localStorage.removeItem("srs_snow_cache_v1");
+                    } catch {}
+                    window.location.reload();
+                  }}
+                >
+                  Refresh data
+                </IonButton>
               </div>
             </IonLabel>
           </IonItem>
