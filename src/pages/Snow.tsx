@@ -141,6 +141,15 @@ export default function Snow() {
   const [snowById, setSnowById] = useState<Record<string, SnowMetrics>>({});
   const [snowLoading, setSnowLoading] = useState<boolean>(true);
 
+  function refreshSnow() {
+    try {
+      localStorage.removeItem("srs_snow_cache_v1");
+    } catch {
+      // ignore
+    }
+    window.location.reload();
+  }
+
   useEffect(() => {
     // 1) Use cached location if fresh (no prompt)
     const cachedGeo = getCachedGeo();
@@ -302,6 +311,21 @@ export default function Snow() {
     return { bg: "#7a5a1f", border: "#a57b2a" };
   }
 
+  function shortTimeStamp(s: string | null | undefined): string | null {
+    if (!s) return null;
+    // If it's already a locale string, keep it. Otherwise try parsing.
+    const d = new Date(s);
+    if (!Number.isNaN(d.getTime())) {
+      return d.toLocaleString(undefined, {
+        month: "numeric",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      });
+    }
+    return s;
+  }
+
   function fmtMonthDay(dateISO: string): string {
     const [y, m, d] = dateISO.split("-").map(Number);
     const dt = new Date(y, (m ?? 1) - 1, d ?? 1);
@@ -312,6 +336,12 @@ export default function Snow() {
     if (label === "green") return "Go";
     if (label === "yellow") return "Wait / Watch";
     return "Skip";
+  }
+
+  function sameResortCopy(overall: "green" | "yellow" | "red") {
+    if (overall === "green") return "Go both days";
+    if (overall === "yellow") return "Same resort both days";
+    return "Stick to one resort (if you go)";
   }
 
   function rollupLabel(
@@ -390,10 +420,27 @@ export default function Snow() {
                     const pickResortIds = Array.from(
                       new Set(picks.map((p) => p.resortId)),
                     );
-                    const provenanceLine = buildProvenanceLine(
-                      snowById,
-                      pickResortIds,
-                    );
+
+                    const next24 =
+                      pickResortIds
+                        .map((id) => snowById[id]?.next24Meta?.updatedAt)
+                        .find((x) => x != null) ?? null;
+
+                    const last48 =
+                      pickResortIds
+                        .map((id) => snowById[id]?.last48Meta?.updatedAt)
+                        .find((x) => x != null) ?? null;
+
+                    const provenanceLine =
+                      next24 || last48
+                        ? [
+                            next24 ? `NWS ${shortTimeStamp(next24)}` : null,
+                            last48 ? `Resort ${shortTimeStamp(last48)}` : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")
+                        : null;
+
                     const labels = picks.map((p) => p.label);
                     const overall = rollupLabel(labels);
                     const overallColors = labelColors(overall);
@@ -470,7 +517,7 @@ export default function Snow() {
                                 opacity: 0.75,
                               }}
                             >
-                              Go both days
+                              {sameResortCopy(overall)}
                             </div>
                           </>
                         ) : (
@@ -626,6 +673,14 @@ export default function Snow() {
                             style={{ flex: 1 }}
                           >
                             Share plan
+                          </IonButton>
+                          <IonButton
+                            expand="block"
+                            fill="outline"
+                            style={{ flex: 1 }}
+                            onClick={refreshSnow}
+                          >
+                            Refresh data
                           </IonButton>
                         </div>
                       </div>
