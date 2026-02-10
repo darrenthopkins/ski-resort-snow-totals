@@ -1,4 +1,9 @@
-import { calculateConfidence, type ConfidenceResult, type DayFacts } from "./confidence";
+import {
+  calculateConfidence,
+  type ConfidenceResult,
+  type DayFacts,
+} from "./confidence";
+type ConfidenceWithFacts = ConfidenceResult & { facts: DayFacts };
 
 export type ResortDayCandidate = {
   resortId: string;
@@ -11,7 +16,7 @@ export type ResortDayCandidate = {
 export type RankedResort = {
   resortId: string;
   resortName: string;
-  result: ConfidenceResult;
+  result: ConfidenceWithFacts;
 };
 
 export type DayOutlook = {
@@ -47,7 +52,8 @@ function dateSortAsc(aISO: string, bISO: string): number {
 
 function daySortForBest(a: DayOutlook, b: DayOutlook): number {
   // Prefer higher score
-  if (b.best.result.score !== a.best.result.score) return b.best.result.score - a.best.result.score;
+  if (b.best.result.score !== a.best.result.score)
+    return b.best.result.score - a.best.result.score;
 
   // Tie-breaker 1: earlier date
   if (a.dateISO !== b.dateISO) return a.dateISO.localeCompare(b.dateISO);
@@ -61,7 +67,10 @@ function daySortForBest(a: DayOutlook, b: DayOutlook): number {
   return 0;
 }
 
-export function buildWeekOutlook(candidates: ResortDayCandidate[], topNPerDay = 3): WeekOutlook {
+export function buildWeekOutlook(
+  candidates: ResortDayCandidate[],
+  topNPerDay = 3,
+): WeekOutlook {
   if (candidates.length === 0) {
     throw new Error("buildWeekOutlook: candidates must be non-empty");
   }
@@ -82,7 +91,7 @@ export function buildWeekOutlook(candidates: ResortDayCandidate[], topNPerDay = 
     const ranked: RankedResort[] = dayCandidates.map((c) => ({
       resortId: c.resortId,
       resortName: c.resortName,
-      result: calculateConfidence(c.facts),
+      result: { ...calculateConfidence(c.facts), facts: c.facts },
     }));
 
     ranked.sort(stableResortSort);
