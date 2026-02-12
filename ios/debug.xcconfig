@@ -1,1 +1,3 @@
 CAPACITOR_DEBUG = true
+OTHER_SWIFT_FLAGS = $(inherited) -enable-upcoming-feature NonescapableTypes
+
