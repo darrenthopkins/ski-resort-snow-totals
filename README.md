@@ -30,7 +30,7 @@ Lift is built as a hybrid mobile app:
 
 For a full architectural breakdown, see:
 
-👉 **[Architecture & Distribution Guide](docs/architecture.md)**
+👉 **[Architecture & Distribution Guide](docs/ARCHITECTURE_AND_DISTRIBUTION.md)**
 
 ---
 
@@ -87,7 +87,7 @@ The recommended path for demo distribution is:
 
 Full details are documented in:
 
-👉 **[docs/architecture.md](docs/architecture.md)**
+👉 **[docs/architecture.md](docs/ARCHITECTURE_AND_DISTRIBUTION.md)**
 
 ---
 
