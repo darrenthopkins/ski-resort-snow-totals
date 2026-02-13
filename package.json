@@ -11,7 +11,7 @@
     "test.unit": "vitest run",
     "lint": "eslint",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "precheck": "npm run typecheck && npm run test.unit",
+    "precheck": "bash scripts/precommit-guard.sh && npm run typecheck && npm run test.unit",
     "postinstall": "patch -p0 -N -r - < patches/@capacitor+status-bar+8.0.0.patch || true"
   },
   "dependencies": {

@@ -29,3 +29,35 @@ yarn-error.log*
 
 # Optional eslint cache
 .eslintcache
+# Xcode / DerivedData
+
+.dd/
+DerivedData/
+*.xcresult
+ios/App/.build/
+ios/App/Pods/
+ios/App/Podfile.lock
+
+# SwiftPM / Xcode user state
+*.xcuserstate
+*.xccheckout
+xcuserdata/
+
+
+# Xcode DerivedData
+.dd/
+DerivedData/
+
+# build logs / patch-package noise
+.tmp.build.log
+patch-package-error.json.gz
+patches/
+vendor/
+
+# Never commit build/vendor artifacts
+.dd/
+DerivedData/
+.tmp.build.log
+patch-package-error.json.gz
+patches/
+vendor/

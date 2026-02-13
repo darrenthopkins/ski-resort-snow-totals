@@ -2,7 +2,7 @@ import type { CapacitorConfig } from "@capacitor/cli";
 
 const config: CapacitorConfig = {
   appId: "com.dhopkins.skiresortsnowtotals",
-  appName: "ski-resort-snow-totals",
+  appName: "lift",
   webDir: "dist",
 };
 
