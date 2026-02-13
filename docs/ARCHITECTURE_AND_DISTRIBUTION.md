@@ -18,16 +18,17 @@ This document covers:
 
 ```mermaid
 flowchart TD
-    A[Application Code<br/>src/<br/>UI + Services + Planner]
-    B[Vite Build Output<br/>HTML / CSS / JS]
-    C[Web Runtime<br/>Browser (dev)<br/>WKWebView (iOS)]
-    D[Capacitor Bridge]
-    E[Native iOS Shell<br/>Swift + Xcode]
+    A["Application Code\nsrc/\nUI + Services + Planner"]
+    B["Vite Build Output\nHTML / CSS / JS"]
+    C["Web Runtime\nBrowser (dev)\nWKWebView (iOS)"]
+    D["Capacitor Bridge"]
+    E["Native iOS Shell\nSwift + Xcode"]
 
     A --> B
     B --> C
     C --> D
     D --> E
+
 ```
 
 ---
