@@ -83,6 +83,16 @@ function resortFetchProxy(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [react(), resortFetchProxy()],
+  plugins: [react()],
+  test: {
+    include: ["src/**/*.{test,spec}.{ts,tsx}"],
+    exclude: [
+      "**/node_modules/**",
+      "**/dist/**",
+      "**/vendor/**",
+      "**/.dd/**",
+      "**/ios/**",
+      "**/android/**",
+    ],
+  },
 });
-

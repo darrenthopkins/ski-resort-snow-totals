@@ -1,0 +1,77 @@
+diff --git a/node_modules/@capacitor/app/android/src/main/java/com/capacitorjs/plugins/app/AppPlugin.java b/node_modules/@capacitor/app/android/src/main/java/com/capacitorjs/plugins/app/AppPlugin.java
+index c0edf2d..f64ebc6 100644
+--- a/node_modules/@capacitor/app/android/src/main/java/com/capacitorjs/plugins/app/AppPlugin.java
++++ b/node_modules/@capacitor/app/android/src/main/java/com/capacitorjs/plugins/app/AppPlugin.java
+@@ -84,7 +84,7 @@ public class AppPlugin extends Plugin {
+             data.put("version", pinfo.versionName);
+             call.resolve(data);
+         } catch (Exception ex) {
+-            call.reject("Unable to get App Info");
++            call.rejectShim("Unable to get App Info");
+         }
+     }
+ 
+@@ -116,7 +116,7 @@ public class AppPlugin extends Plugin {
+     @PluginMethod
+     public void toggleBackButtonHandler(PluginCall call) {
+         if (this.onBackPressedCallback == null) {
+-            call.reject("onBackPressedCallback is not set");
++            call.rejectShim("onBackPressedCallback is not set");
+             return;
+         }
+ 
+diff --git a/node_modules/@capacitor/app/ios/Sources/AppPlugin/AppPlugin.swift b/node_modules/@capacitor/app/ios/Sources/AppPlugin/AppPlugin.swift
+index a6c4451..968abd2 100644
+--- a/node_modules/@capacitor/app/ios/Sources/AppPlugin/AppPlugin.swift
++++ b/node_modules/@capacitor/app/ios/Sources/AppPlugin/AppPlugin.swift
+@@ -88,7 +88,7 @@ public class AppPlugin: CAPPlugin, CAPBridgedPlugin {
+                 "version": info["CFBundleShortVersionString"] as? String ?? ""
+             ])
+         } else {
+-            call.reject("Unable to get App Info")
++            call.rejectShim("Unable to get App Info")
+         }
+ 
+     }
+diff --git a/node_modules/@capacitor/app/ios/Sources/AppPlugin/CAPPluginCall+RejectShim.swift b/node_modules/@capacitor/app/ios/Sources/AppPlugin/CAPPluginCall+RejectShim.swift
+new file mode 100644
+index 0000000..fb3ec5d
+--- /dev/null
++++ b/node_modules/@capacitor/app/ios/Sources/AppPlugin/CAPPluginCall+RejectShim.swift
+@@ -0,0 +1,36 @@
++import Foundation
++import Capacitor
++import ObjectiveC.runtime
++
++extension CAPPluginCall {
++    func rejectShim(
++        _ message: String,
++        _ code: String? = nil,
++        _ error: Error? = nil,
++        _ data: [String: Any]? = nil
++    ) {
++        let sel = NSSelectorFromString("reject::::")
++
++        guard responds(to: sel) else {
++            unavailable(message)
++            return
++        }
++
++        typealias MsgSendFn = @convention(c) (
++            AnyObject,
++            Selector,
++            NSString,
++            NSString?,
++            NSError?,
++            NSDictionary?
++        ) -> Void
++
++        let fn = unsafeBitCast(objc_msgSend, to: MsgSendFn.self)
++        fn(self, sel,
++           message as NSString,
++           code as NSString?,
++           error as NSError?,
++           data as NSDictionary?)
++    }
++}
++
