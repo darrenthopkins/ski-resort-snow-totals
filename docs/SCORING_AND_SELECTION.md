@@ -1,253 +1,389 @@
-# Lift – Scoring & Resort Selection Model
+# SCORING AND SELECTION
 
-This document explains how Lift currently:
+**Branch:** `v1-demo-truth`  
+**Authority:** Implementation in `/src` (code is authoritative)
 
-1. Scores ski resorts
-2. Selects candidate resorts
-3. Produces final recommendations
+This document is a precise technical specification of the scoring and resort selection system as implemented in this branch.
 
-This is intended to reflect the **actual implemented logic**, not aspirational design.
-
----
-
-# 1. Data Inputs Used in Scoring
-
-Lift aggregates the following inputs before scoring:
-
-## Dynamic Inputs (Live-Fetched)
-
-- Last 24–48 hour snowfall
-- Next 24-hour forecast snowfall
-- Base depth (if provided by source)
-
-Source location:
-```
-src/services/snow/**
-```
-
-Normalization and shaping typically occurs before planning logic consumes the data.
+If behavior described here conflicts with the code, the code is authoritative.
 
 ---
 
-## Static Inputs (Hard-Coded)
+# TL;DR — How Scoring Works
 
-- Resort list
-- Resort metadata (ID, name, region)
-- Possibly geographic grouping or drive-time grouping
+Every resort-day receives a score from **0–100**:
 
-Likely located in:
 ```
-src/lib/** 
-or 
-src/data/**
+Score =
+  20 (baseline)
++ Snow points (10–50)
++ Base depth points (0–20)
++ Temperature points (-20 to +10)
++ Wind penalty (0 to -20)
++ Weekend penalty (0 or -15)
++ Drive penalty (0 to -20)
 ```
 
-These are bundled with the app and version-controlled.
+Then:
+
+- Clamped to `[0, 100]`
+- Rounded to nearest integer
+- Labeled:
+  - `>= 80` → green
+  - `>= 60` → yellow
+  - `< 60` → red
+
+## Key Characteristics (Sunny-Day View)
+
+- Snow has the largest influence (up to +50).
+- A "sunny 28°F weekday with low wind and no drive penalty" typically scores mid-to-high yellow even with moderate snow.
+- Weekend always costs -15.
+- Temperature scoring uses **maxTempF only**.
+- Base depth is currently hard-coded to 30 inches.
+- Multi-day optimization is not implemented.
+- Backup selection is distance-based (not score-based).
 
 ---
 
-# 2. Current Scoring Model (As Implemented)
+# 1. End-to-End Flow
 
-⚠️ This section should reflect what is actually in:
+## Planner Pipeline
 
-```
-src/lib/**
-```
+1. Fetch snow/weather metrics  
+   `src/services/snow/realSnowService.ts`
 
-Specifically look for:
-- `buildWeekPlan`
-- `buildWeekPlanViewModel`
-- Any `score*` or weighting functions
+2. Convert metrics to day candidates  
+   `src/lib/snowMetricsAdapter.ts`
 
----
+3. Score each candidate  
+   `src/lib/confidence.ts`
 
-## 2.1 Confirmed Elements (Based on Current Structure)
+4. Rank per-day + choose best day  
+   `src/lib/weekOutlook.ts`
 
-Lift appears to consider:
-
-- Recent snowfall (last 24–48)
-- Near-term forecast snowfall
-- Base depth
-- Possibly multi-day window optimization
-
-The output type (example):
-
-```
-WeekDecision = {
-  picks: Array<{
-    dateISO: string;
-    resortId: string;
-    resortName: string;
-    label: Label;
-    score: number;
-  }>;
-  backup?: {...};
-  window: {...};
-  why: string[];
-}
-```
-
-This confirms:
-
-- Each resort/date combination receives a numeric score.
-- A comparison step selects the highest-scoring option(s).
+5. Build UI decision model  
+   `src/lib/weekPlannerViewModel.ts`
 
 ---
 
-## 2.2 What Needs Verification in Code
+# 2. Inputs Used in Scoring
 
-Open:
+Defined in:
 
 ```
-src/lib/** (planner logic file)
+src/lib/confidence.ts
 ```
 
-Answer these precisely:
-
-1. Is the score additive?
-   - Example:
-     ```
-     score = (recentSnow * weightA)
-           + (forecastSnow * weightB)
-           + (baseDepth * weightC)
-     ```
-
-2. Are there thresholds?
-   - Minimum snowfall?
-   - Base cutoff?
-   - Any “zero out if below X”?
-
-3. Are weights configurable?
-   - Hard-coded constants?
-   - Environment-configured?
-   - Inline magic numbers?
-
-4. Is scoring per-day or per-window?
-   - Does it evaluate each day independently?
-   - Or evaluate a rolling 2–3 day window?
-
-Once verified, document the actual formula here.
-
----
-
-# 3. Resort Candidate Selection
-
-Before scoring, Lift must determine which resorts are eligible.
-
-This typically happens in one of two ways:
-
-### Option A – Static Inclusion
-
-All resorts in the hard-coded list are scored.
-
-### Option B – Filtered Inclusion
-
-Resorts are filtered by:
-
-- Region
-- Distance
-- Availability of data
-- Minimum snowfall threshold
-
-To confirm:
-
-Search:
-```
-rg -n "filter" src/lib
-rg -n "resort" src/lib
+```ts
+export type DayFacts = {
+  newSnowInches: number;
+  baseDepthInches: number;
+  minTempF: number;
+  maxTempF: number;
+  maxWindMph: number;
+  isWeekend: boolean;
+  driveMiles?: number;
+};
 ```
 
-Document whether:
+No other inputs are used.
 
-- All resorts are always considered
-- Only resorts with non-zero snowfall are considered
-- Any geography logic exists
+If something is not listed above, it is not part of scoring.
 
 ---
 
-# 4. Current Selection Process
+# 3. How Snow Is Derived
 
-After scoring:
+Defined in:
 
-1. Resorts are ranked by score.
-2. Top candidate(s) are selected.
-3. Optional backup candidate is selected.
-4. A human-readable “why” explanation is generated.
+```
+src/lib/snowMetricsAdapter.ts
+```
 
-Verify in code:
+### SnowMetrics Inputs
 
-- Is it `Math.max()`?
-- Is it sorted descending?
-- Are ties handled?
-- Are adjacent-day wins merged?
+```
+last48In
+next24In
+minTempF
+maxTempF
+maxWindMph
+```
 
----
+### Snow Projection Logic
 
-# 5. What Is Real Right Now vs Conceptual
+```
+estimatedLast24 = last48In == null ? 0 : last48In / 2
+forecastNext24  = next24In == null ? 0 : next24In
+```
 
-## Real (Implemented)
+When used inside the week planner:
 
-- Snow data aggregation
-- View model output
-- Numeric scoring
-- Ranked pick selection
-- iOS UI display
+| Day Index | newSnowInches |
+|-----------|---------------|
+| 0         | estimatedLast24 |
+| 1         | forecastNext24 |
+| ≥ 2       | 0 |
 
-## Not Confirmed (Requires Code Inspection)
-
-- Exact weight ratios
-- Threshold logic
-- Geographic filtering
-- Multi-day optimization strategy
-
----
-
-# 6. How to Audit the Current Model
-
-To fully understand the live scoring model:
-
-1. Open planner logic in:
-   ```
-   src/lib/**
-   ```
-
-2. Identify:
-   - The function that returns `score`
-   - Any constants defined at the top of file
-   - Any conditional boosts or penalties
-
-3. Document:
-   - Exact formula
-   - Exact weights
-   - Any special-case logic
-
-This ensures documentation matches behavior.
+Because `getOnTheSnowLast48()` currently returns `null`,
+Day 0 snow is effectively 0 in current implementation.
 
 ---
 
-# 7. Recommendation
+# 4. Scoring Components (Exact Buckets)
 
-Once verified, replace Section 2.2 with:
+Defined in:
 
-- Exact formula
-- Exact weights
-- Explicit inclusion rules
-
-This prevents architectural drift between code and documentation.
-
----
-
-# README Link
-
-Add to `README.md`:
-
-```markdown
-## Scoring & Selection Model
-
-See [docs/scoring-and-selection.md](docs/scoring-and-selection.md)
+```
+src/lib/confidence.ts
 ```
 
 ---
 
-**Status:** Document reflects current branch behavior.  
-If scoring logic changes, this file must be updated in the same commit.
+## 4.1 Baseline
+
+```
+BASELINE_POINTS = 20
+```
+
+---
+
+## 4.2 Snow (max +50)
+
+| New Snow (in) | Points |
+|---------------|--------|
+| ≥ 8           | +50    |
+| ≥ 5           | +38    |
+| ≥ 2           | +22    |
+| < 2           | +10    |
+
+---
+
+## 4.3 Base Depth (max +20)
+
+| Base (in) | Points |
+|-----------|--------|
+| ≥ 40      | +20    |
+| ≥ 30      | +14    |
+| ≥ 20      | +7     |
+| < 20      | +0     |
+
+Note: Base depth is currently defaulted to 30 inches in `snowMetricsAdapter.ts`.
+
+---
+
+## 4.4 Temperature (max +10, min -20)
+
+Uses **maxTempF only**.
+
+| Max Temp (°F) | Points |
+|---------------|--------|
+| 20–32         | +10    |
+| 10–19         | +0     |
+| 33–38         | -5     |
+| < 10          | -10    |
+| > 38          | -20    |
+
+`minTempF` is not used in scoring.
+
+---
+
+## 4.5 Wind (max 0, min -20)
+
+| Max Wind (mph) | Points |
+|----------------|--------|
+| ≤ 10           | 0      |
+| ≤ 20           | -5     |
+| ≤ 30           | -10    |
+| > 30           | -20    |
+
+---
+
+## 4.6 Weekend Penalty
+
+| isWeekend | Points |
+|-----------|--------|
+| true      | -15    |
+| false     | 0      |
+
+---
+
+## 4.7 Drive Penalty
+
+If driveMiles missing → 0 points.
+
+| Miles | Points |
+|-------|--------|
+| ≤ 50  | 0      |
+| ≤ 80  | -5     |
+| ≤ 110 | -10    |
+| >110  | -20    |
+
+---
+
+# 5. Final Score Calculation
+
+```
+raw =
+  20
++ snow
++ base
++ temp
++ wind
++ weekend
++ drive
+```
+
+Then:
+
+```
+score = round(clamp(raw, 0, 100))
+```
+
+---
+
+# 6. Label Thresholds
+
+Defined in:
+
+```
+labelForScore(score)
+```
+
+| Score | Label  |
+|-------|--------|
+| ≥ 80  | green  |
+| ≥ 60  | yellow |
+| < 60  | red    |
+
+---
+
+# 7. Per-Day Ranking
+
+Defined in:
+
+```
+src/lib/weekOutlook.ts
+```
+
+Sorting priority:
+
+1. Higher score
+2. Label priority (green > yellow > red)
+3. Resort name alphabetical
+
+Top N per day selected (minimum 1).
+
+---
+
+# 8. Best Day Selection Across Week
+
+Sorting priority:
+
+1. Higher best resort score
+2. Earlier date
+3. Prefer weekday over weekend
+
+---
+
+# 9. Multi-Day Window Logic
+
+Defined in:
+
+```
+src/lib/weekPlannerViewModel.ts
+```
+
+Current implementation:
+
+- Take top 2 scoring days (sorted by score only).
+- Window start = earliest selected day.
+- Window end = latest selected day.
+- No adjacency optimization.
+- No stretch scoring.
+
+---
+
+# 10. Backup Resort Logic
+
+Not score-based.
+
+If drive distances available:
+- Choose closest resort (excluding best overall).
+
+Otherwise:
+- Choose second resort in input list.
+
+---
+
+# 11. Worked Example
+
+Given:
+
+```
+newSnowInches = 6
+baseDepthInches = 30
+maxTempF = 28
+maxWindMph = 18
+isWeekend = true
+driveMiles = 75
+```
+
+Component breakdown:
+
+```
+Baseline     = 20
+Snow         = +38
+Base         = +14
+Temp         = +10
+Wind         = -5
+Weekend      = -15
+Drive        = -5
+--------------------------------
+Raw          = 57
+Final Score  = 57
+Label        = red
+```
+
+---
+
+# 12. Explicit Non-Features
+
+The following are not implemented:
+
+- No continuous normalization
+- No tunable weights
+- No terrain/lift count influence
+- No snowfall decay modeling
+- No multi-day stretch optimization
+- No crowd prediction beyond weekend penalty
+- No live base depth ingestion
+
+---
+
+# 13. Files of Record
+
+```
+src/lib/confidence.ts
+src/lib/snowMetricsAdapter.ts
+src/lib/weekOutlook.ts
+src/lib/weekPlanner.ts
+src/lib/weekPlannerViewModel.ts
+src/services/snow/*
+src/data/resorts.ts
+```
+
+---
+
+# Summary
+
+This scoring system is:
+
+- Deterministic
+- Bucket-based
+- Snow-dominant
+- Temperature-aware (via maxTempF only)
+- Penalized for wind, weekend, and long drives
+- Not stretch-optimized
+
+All values and thresholds are hard-coded in `confidence.ts`.
