@@ -89,6 +89,12 @@ Full details are documented in:
 
 👉 **[docs/architecture.md](docs/ARCHITECTURE_AND_DISTRIBUTION.md)**
 
+Scoring and selection are documented in:
+
+👉 **[docs/scoring.md](docs/SCORING_AND_SELECTION.md)**
+
+
+
 ---
 
 ## Current State
