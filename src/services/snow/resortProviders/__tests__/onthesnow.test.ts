@@ -1,54 +1,41 @@
-/// <reference types="vitest" />
+import { describe, expect, test } from "vitest";
+import fs from "node:fs";
+import { __test__ } from "../onthesnow";
 
-import { describe, it, expect, vi } from "vitest";
-import { RESORTS } from "../../../../data/resorts";
-import { getOnTheSnowLast48 } from "../onthesnow";
+function readFixture(name: string) {
+  const url = new URL(`../__fixtures__/${name}`, import.meta.url);
+  return fs.readFileSync(url, "utf8");
+}
 
-vi.mock("../../../http/fetchViaProxy", () => {
-  return {
-    fetchTextViaProxy: vi.fn(async () => {
-      // Minimal fixture that resembles OnTheSnow structure:
-      // - Recent Snowfall day buckets include Tue 0", Wed 1"
-      // - Base/Summit include 24" and 36" which must NOT affect last48
-      return `
-        <html>
-          <body>
-            <h3>Recent Snowfall</h3>
-            <div class="recent">
-              <div>Sat</div><div>0"</div>
-              <div>Sun</div><div>0"</div>
-              <div>Mon</div><div>0"</div>
-              <div>Tue</div><div>0"</div>
-              <div>Wed</div><div>1"</div>
-              <div>24h</div><div>0"</div>
-            </div>
+describe("OnTheSnow parsing", () => {
+  test("gunstock: uses 24h + previous day", () => {
+    const html = readFixture("onthesnow_gunstock.html");
+    const v = __test__.parseLast48FromRecentSnowfall(html);
+    expect(v).toBe(2);
+  });
 
-            <h3>Forecasted Snow</h3>
-            <div class="forecast">
-              <div>Thu</div><div>0"</div>
-            </div>
+  test("pats peak: sums last two daily values when no 24h column", () => {
+    const html = readFixture("onthesnow_pats-peak.html");
+    const v = __test__.parseLast48FromRecentSnowfall(html);
+    expect(v).toBe(0);
+  });
 
-            <div class="cards">
-              <div>Base</div><div>24"</div>
-              <div>Summit</div><div>36"</div>
-            </div>
+  test("returns null when markup doesn't contain recent snowfall values", () => {
+    const html = `<html><body><h1>No Recent Snowfall Here</h1></body></html>`;
+    const v = __test__.parseLast48FromRecentSnowfall(html);
+    expect(v).toBeNull();
+  });
 
-            <div>Snow Report Last Updated: Feb 05</div>
-          </body>
-        </html>
-      `;
-    }),
-  };
-});
-
-describe("onthesnow provider parsing", () => {
-  it("computes last48 from the last two day buckets (ignores Base/Summit inches)", async () => {
-    const waterville = RESORTS.find(r => r.id === "waterville");
-    expect(waterville).toBeTruthy();
-
-    const out = await getOnTheSnowLast48(waterville!);
-    expect(out).toBeTruthy();
-    expect(out!.last48In).toBe(null); // demo-safe: provider may suppress unreliable last48
-    expect(out!.updatedAt).toBe("Feb 05");
+  test("handles decimals", () => {
+    const html = `
+    ### Recent Snowfall
+    Mon <span>0.1"</span>
+    Tue <span>2.5"</span>
+    24h <span>1"</span>
+    ### Forecasted Snow
+  `;
+    const v = __test__.parseLast48FromRecentSnowfall(html);
+    // 24h + previous day (Tue=2.5, 24h=1) => 3.5
+    expect(v).toBeCloseTo(3.5, 5);
   });
 });
