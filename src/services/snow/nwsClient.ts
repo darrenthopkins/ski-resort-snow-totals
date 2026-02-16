@@ -124,6 +124,23 @@ function overlapMillis(
   return Math.max(0, end - start);
 }
 
+function proxied(url: string): string {
+  return `/api/fetch?url=${encodeURIComponent(url)}`;
+}
+
+async function fetchNwsJson<T>(url: string): Promise<T> {
+  const resp = await fetch(proxied(url), {
+    headers: { Accept: "application/geo+json" },
+  });
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => "");
+    throw new Error(
+      `NWS ${resp.status} ${resp.statusText} for ${url} :: ${body.slice(0, 200)}`,
+    );
+  }
+  return (await resp.json()) as T;
+}
+
 export async function getNext24SnowInches(resort: Resort): Promise<{
   next24In: number | null;
   minTempF: number | null;
@@ -134,17 +151,10 @@ export async function getNext24SnowInches(resort: Resort): Promise<{
 }> {
   // 1) Convert lat/lon -> URLs via /points
   const pointsUrl = `https://api.weather.gov/points/${resort.lat},${resort.lon}`;
-  const pointsResp = await fetch(pointsUrl, {
-    headers: { Accept: "application/geo+json" },
-  });
-  if (!pointsResp.ok) {
-    throw new Error(
-      `NWS points failed ${pointsResp.status} for ${resort.name}`,
-    );
-  }
-  const pointsJson = (await pointsResp.json()) as NwsPointsResponse;
-  const gridUrl = pointsJson?.properties?.forecastGridData;
-  const forecastUrl = pointsJson?.properties?.forecast;
+  const pointsJson = await fetchNwsJson<NwsPointsResponse>(pointsUrl);
+
+  const gridUrl = pointsJson.properties.forecastGridData;
+  const forecastUrl = pointsJson.properties.forecast;
 
   if (!gridUrl) {
     throw new Error(`NWS points missing forecastGridData for ${resort.name}`);
@@ -158,13 +168,7 @@ export async function getNext24SnowInches(resort: Resort): Promise<{
   const end = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
   // 2) Fetch grid data (snowfallAmount)
-  const gridResp = await fetch(gridUrl, {
-    headers: { Accept: "application/geo+json" },
-  });
-  if (!gridResp.ok) {
-    throw new Error(`NWS grid failed ${gridResp.status} for ${resort.name}`);
-  }
-  const gridJson = (await gridResp.json()) as NwsGridResponse;
+  const gridJson = await fetchNwsJson<NwsGridResponse>(gridUrl);
 
   const layer = gridJson?.properties?.snowfallAmount;
   const values = layer?.values ?? [];
@@ -187,13 +191,8 @@ export async function getNext24SnowInches(resort: Resort): Promise<{
   }
 
   // 3) Fetch forecast periods (temp + wind)
-  const fcResp = await fetch(forecastUrl, {
-    headers: { Accept: "application/geo+json" },
-  });
-  if (!fcResp.ok) {
-    throw new Error(`NWS forecast failed ${fcResp.status} for ${resort.name}`);
-  }
-  const fcJson = (await fcResp.json()) as NwsForecastResponse;
+  const fcJson = await fetchNwsJson<NwsForecastResponse>(forecastUrl);
+
   const periods = fcJson?.properties?.periods ?? [];
 
   let minTempF: number | null = null;

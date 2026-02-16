@@ -1,4 +1,4 @@
-import type { SnowMetrics, SnowService } from './types';
+import type { SnowMetrics, SnowService } from "./types";
 
 type MockRow = {
   last48In: number | null;
@@ -21,8 +21,22 @@ export class MockSnowService implements SnowService {
       out[id] = {
         last48In: v.last48In,
         next24In: v.next24In,
-        last48Meta: { source: 'mock', sourceUrl: '', updatedAt: '—' },
-        next24Meta: { source: 'mock', sourceUrl: '', updatedAt: '—' },
+        // src/services/snow/mockSnowService.ts
+
+        last48Meta: {
+          source: "mock",
+          status: "derived", // or "measured" if you prefer
+          sourceUrl: "",
+          updatedAt: "—",
+          provenance: { mock: true },
+        },
+        next24Meta: {
+          source: "mock",
+          status: "derived",
+          sourceUrl: "",
+          updatedAt: "—",
+          provenance: { mock: true },
+        },
       };
     }
     return out;
