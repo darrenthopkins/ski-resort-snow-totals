@@ -2,6 +2,17 @@ import { getOnTheSnowLast48 } from "./resortProviders/onthesnow";
 import type { SnowMetrics, SnowService, GetSnowOptions } from "./types";
 import { getNext24SnowInches } from "./nwsClient";
 import { MockSnowService } from "./mockSnowService";
+import type { MetricMeta, MetricStatus, SnowSource } from "./types";
+
+function meta(params: {
+  source: SnowSource;
+  status: MetricStatus;
+  sourceUrl: string;
+  updatedAt: string;
+  provenance?: Record<string, unknown>;
+}): MetricMeta {
+  return params;
+}
 
 const CACHE_MS = 10 * 60 * 1000; // 10 minutes
 const LS_KEY = "srs_snow_cache_v1";
@@ -70,18 +81,26 @@ export class RealSnowService implements SnowService {
           maxTempF: nws.maxTempF ?? null,
           maxWindMph: nws.maxWindMph ?? null,
 
-          last48Meta: last48
-            ? {
-                source: "resort",
-                sourceUrl: last48.sourceUrl,
-                updatedAt: last48.updatedAt,
-              }
-            : undefined,
-          next24Meta: {
+          last48Meta: meta({
+            source: "onthesnow",
+            status: last48?.last48In == null ? "missing" : "measured",
+            sourceUrl: last48?.sourceUrl ?? "",
+            updatedAt: last48?.updatedAt ?? new Date().toISOString(),
+            provenance:
+              last48?.last48In == null ? { reason: "parse_null" } : undefined,
+          }),
+          next24Meta: meta({
             source: "nws",
-            sourceUrl: nws.sourceUrl,
-            updatedAt: nws.updatedAt,
-          },
+            status: nws.next24In == null ? "missing" : "derived",
+            sourceUrl: nws.sourceUrl ?? "", // depends on your nwsClient return; add if missing
+            updatedAt: nws.updatedAt ?? new Date().toISOString(),
+          }),
+          minTempMeta: meta({
+            source: "nws",
+            status: nws.minTempF == null ? "missing" : "derived",
+            sourceUrl: nws.sourceUrl ?? "",
+            updatedAt: nws.updatedAt ?? new Date().toISOString(),
+          }),
         };
 
         memCache[r.id] = { at: Date.now(), v };

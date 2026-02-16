@@ -54,48 +54,6 @@ function firstNonNull<T>(xs: Array<T | null | undefined>): T | null {
   return null;
 }
 
-function buildProvenanceLine(
-  snowById: Record<string, SnowMetrics>,
-  resortIds: string[],
-): string | null {
-  if (!resortIds.length) return null;
-
-  const next24 = firstNonNull(
-    resortIds.map((id) => snowById[id]?.next24Meta?.updatedAt),
-  );
-  const last48 = firstNonNull(
-    resortIds.map((id) => snowById[id]?.last48Meta?.updatedAt),
-  );
-
-  if (!next24 && !last48) return null;
-
-  const parts: string[] = [];
-  if (next24) parts.push(`NWS ${next24}`);
-  if (last48) parts.push(`Resort ${last48}`);
-  return parts.join(" · ");
-}
-
-function metaLineForResorts(
-  snowById: Record<string, SnowMetrics>,
-  resortIds: string[],
-): string | null {
-  if (!resortIds.length) return null;
-
-  const next24 = firstNonNull(
-    resortIds.map((id) => snowById[id]?.next24Meta?.updatedAt),
-  );
-  const last48 = firstNonNull(
-    resortIds.map((id) => snowById[id]?.last48Meta?.updatedAt),
-  );
-
-  if (!next24 && !last48) return null;
-
-  const parts: string[] = [];
-  if (next24) parts.push(`NWS ${next24}`);
-  if (last48) parts.push(`Resort ${last48}`);
-  return parts.join(" · ");
-}
-
 function readJson<T>(key: string): T | null {
   try {
     const raw = localStorage.getItem(key);
@@ -350,6 +308,19 @@ export default function Snow() {
     if (labels.includes("red")) return "red";
     if (labels.includes("yellow")) return "yellow";
     return "green";
+  }
+
+  function needsAttention(
+    meta?: { status: string } | null,
+    value?: number | null,
+  ) {
+    // If we have meta, trust it
+    if (meta?.status === "missing" || meta?.status === "derived") return true;
+
+    // Fallback (back-compat): no meta => missing if value is null
+    if (!meta && value == null) return true;
+
+    return false;
   }
 
   // Load snow data via service abstraction (mock for now)
@@ -954,9 +925,15 @@ export default function Snow() {
                         </span>
                         <span className="colNum">
                           {fmtInches(snow.last48In)}
+                          {needsAttention(snow.last48Meta, snow.last48In) ? (
+                            <span title="Missing or derived input"> (!)</span>
+                          ) : null}
                         </span>
                         <span className="colNum">
                           {fmtInches(snow.next24In)}
+                          {needsAttention(snow.next24Meta, snow.next24In) ? (
+                            <span title="Missing or derived input"> (!)</span>
+                          ) : null}
                         </span>
                         <IonNote className="colUpdated" slot="end">
                           {snow.last48Meta?.updatedAt ??
