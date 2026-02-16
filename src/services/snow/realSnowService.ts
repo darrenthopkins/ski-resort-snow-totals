@@ -53,10 +53,29 @@ export class RealSnowService implements SnowService {
     const out: Record<string, SnowMetrics> = {};
 
     for (const r of options.resorts) {
-      const cached = memCache[r.id];
-      if (cached && isFresh(cached)) {
-        out[r.id] = cached.v;
-        continue;
+      // DEBUG: optional cache bypass
+      const noCache = (() => {
+        try {
+          return localStorage.getItem("srs_debug_nocache") === "1";
+        } catch {
+          return false;
+        }
+      })();
+
+      if (!noCache) {
+        const cached = memCache[r.id];
+        if (cached && isFresh(cached)) {
+          console.log(
+            "[snow] cache HIT",
+            r.id,
+            cached.v.last48In,
+            cached.v.next24In,
+          );
+          out[r.id] = cached.v;
+          continue;
+        }
+      } else {
+        console.log("[snow] cache BYPASSED for", r.id);
       }
 
       try {
@@ -69,6 +88,12 @@ export class RealSnowService implements SnowService {
         } | null = null;
         try {
           last48 = await getOnTheSnowLast48(r);
+          console.log(
+            "[snow] onthesnow result",
+            r.id,
+            last48?.last48In,
+            last48?.sourceUrl,
+          );
         } catch {
           // ignore provider failure
         }
