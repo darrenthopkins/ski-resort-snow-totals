@@ -8,8 +8,28 @@ export type Resort = {
 
 export type ResortProviderIds = {
   id: string;
-  onthesnow?: string;
+
+  // Prefer this when present (no more guessing)
+  onTheSnowUrl?: string;
+
+  // Optional fallback for resorts where slug is stable
+  onTheSnowSlug?: string;
 };
+
+export const RESORT_PROVIDER_IDS: ResortProviderIds[] = [
+  { id: "waterville", onTheSnowSlug: "waterville-valley" },
+  { id: "gunstock", onTheSnowSlug: "gunstock" },
+  { id: "sunapee", onTheSnowSlug: "mount-sunapee" },
+
+  // Fix the known-bad one using explicit URL:
+  {
+    id: "ragged",
+    onTheSnowUrl:
+      "https://www.onthesnow.com/new-hampshire/ragged-mountain-resort/skireport",
+  },
+
+  { id: "patspeak", onTheSnowSlug: "pats-peak" },
+];
 
 export const RESORTS: Resort[] = [
   {
@@ -47,12 +67,4 @@ export const RESORTS: Resort[] = [
     lat: 43.1652,
     lon: -71.7926,
   },
-];
-
-export const RESORT_PROVIDER_IDS: ResortProviderIds[] = [
-  { id: "waterville", onthesnow: "waterville-valley" },
-  { id: "gunstock", onthesnow: "gunstock" },
-  { id: "sunapee", onthesnow: "mount-sunapee" },
-  { id: "ragged", onthesnow: "ragged-mountain-resort" },
-  { id: "patspeak", onthesnow: "pats-peak" },
 ];

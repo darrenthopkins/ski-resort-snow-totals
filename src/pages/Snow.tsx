@@ -910,6 +910,9 @@ export default function Snow() {
                   next24In: null,
                   updatedAt: "—",
                 };
+                if (resort.id === "ragged") {
+                  console.log("[ui] ragged snow object", snow);
+                }
 
                 return (
                   <IonItem key={resort.id}>
