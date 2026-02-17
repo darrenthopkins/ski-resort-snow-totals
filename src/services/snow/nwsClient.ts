@@ -140,6 +140,99 @@ async function fetchNwsJson<T>(url: string): Promise<T> {
   }
   return (await resp.json()) as T;
 }
+function fmtLocalDateISO(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function startOfLocalDay(d: Date): Date {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+
+function addDaysLocal(d: Date, days: number): Date {
+  const x = new Date(d);
+  x.setDate(x.getDate() + days);
+  return x;
+}
+
+function overlapMs(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date): number {
+  const start = Math.max(aStart.getTime(), bStart.getTime());
+  const end = Math.min(aEnd.getTime(), bEnd.getTime());
+  return Math.max(0, end - start);
+}
+
+export async function getWeekSnowDaily(
+  resort: Resort,
+  days = 7,
+): Promise<{
+  daily: Array<{ dateISO: string; inches: number | null }>;
+  updatedAt: string;
+  sourceUrl: string;
+}> {
+  const pointsUrl = `https://api.weather.gov/points/${resort.lat},${resort.lon}`;
+  const pointsJson = await fetchNwsJson<NwsPointsResponse>(pointsUrl);
+  const gridUrl = pointsJson.properties.forecastGridData;
+  if (!gridUrl)
+    throw new Error(`NWS points missing forecastGridData for ${resort.name}`);
+
+  const gridJson = await fetchNwsJson<NwsGridResponse>(gridUrl);
+  const layer = gridJson?.properties?.snowfallAmount;
+  const values = layer?.values ?? [];
+  const uom = layer?.uom;
+
+  const now = new Date();
+  const day0 = startOfLocalDay(now);
+
+  // build day buckets [start,end)
+  const buckets = Array.from({ length: days }, (_, i) => {
+    const start = addDaysLocal(day0, i);
+    const end = addDaysLocal(day0, i + 1);
+    return {
+      dateISO: fmtLocalDateISO(start),
+      start,
+      end,
+      total: 0,
+      any: false,
+    };
+  });
+
+  for (const v of values) {
+    if (v.value == null) continue;
+    const iv = parseValidTimeInterval(v.validTime);
+    if (!iv) continue;
+
+    const intervalMs = iv.end.getTime() - iv.start.getTime();
+    if (intervalMs <= 0) continue;
+
+    const inchesTotal = inchesFromUom(v.value, uom);
+
+    for (const b of buckets) {
+      const ms = overlapMs(iv.start, iv.end, b.start, b.end);
+      if (ms <= 0) continue;
+
+      b.total += inchesTotal * (ms / intervalMs);
+      b.any = true;
+    }
+  }
+
+  const updatedAtISO = gridJson?.properties?.updateTime;
+  const updatedAt = updatedAtISO
+    ? new Date(updatedAtISO).toLocaleString()
+    : "NWS";
+
+  return {
+    daily: buckets.map((b) => ({
+      dateISO: b.dateISO,
+      inches: b.any ? Math.round(b.total * 10) / 10 : null,
+    })),
+    updatedAt,
+    sourceUrl: gridUrl,
+  };
+}
 
 export async function getNext24SnowInches(resort: Resort): Promise<{
   next24In: number | null;
@@ -222,9 +315,7 @@ export async function getNext24SnowInches(resort: Resort): Promise<{
   // 4) updatedAt + sourceUrl
   const forecastUpdated = fcJson?.properties?.updated;
   const updatedAtISO = forecastUpdated ?? gridJson?.properties?.updateTime;
-  const updatedAt = updatedAtISO
-    ? new Date(updatedAtISO).toLocaleString()
-    : "NWS";
+  const updatedAt = updatedAtISO ?? new Date().toISOString();
 
   return {
     next24In: anySnow ? Math.round(totalIn * 10) / 10 : null,

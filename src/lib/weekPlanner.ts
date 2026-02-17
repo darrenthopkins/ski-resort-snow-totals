@@ -67,15 +67,15 @@ export function buildDateRangeISO(
 
   const out: string[] = [];
   for (let i = 0; i < days; i++) {
-    const dt = new Date(Date.UTC(y, m - 1, d + i));
-    out.push(toISODateUTC(dt));
+    const dt = new Date(y, m - 1, d + i); // local day
+    out.push(toISODateLocal(dt));
   }
   return out;
 }
 
-function toISODateUTC(dt: Date): string {
-  const y = dt.getUTCFullYear();
-  const m = String(dt.getUTCMonth() + 1).padStart(2, "0");
-  const d = String(dt.getUTCDate()).padStart(2, "0");
+function toISODateLocal(dt: Date): string {
+  const y = dt.getFullYear();
+  const m = String(dt.getMonth() + 1).padStart(2, "0");
+  const d = String(dt.getDate()).padStart(2, "0");
   return `${y}-${m}-${d}`;
 }

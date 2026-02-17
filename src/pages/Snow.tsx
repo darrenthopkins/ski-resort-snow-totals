@@ -42,6 +42,42 @@ const GEO_ERR_SNOOZE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 type GeoReady = { status: "ready"; lat: number; lon: number; at: number };
 type GeoError = { status: "error"; message: string; at: number };
 type GeoState = { status: "idle" | "loading" } | GeoReady | GeoError;
+type MetricStatus = "measured" | "derived" | "missing";
+type MetricMeta = {
+  status: MetricStatus;
+  source?: string;
+  sourceUrl?: string;
+  updatedAt?: string;
+};
+
+function getIndicator(meta?: MetricMeta | null, value?: number | null) {
+  // Back-compat: if meta missing, treat null as missing
+  if (!meta) return value == null ? { kind: "warn" as const } : null;
+
+  if (meta.status === "missing") return { kind: "warn" as const };
+  if (meta.status === "derived") return { kind: "info" as const };
+  return null; // measured
+}
+
+function metricTooltip(
+  metric: "Last 48h" | "Next 24h",
+  meta?: MetricMeta | null,
+) {
+  if (!meta) return "No metadata available.";
+
+  if (meta.status === "missing")
+    return `Missing ${metric.toLowerCase()} input.`;
+  if (meta.status === "derived") {
+    // Your requested “short but sophisticated”
+    if (metric === "Next 24h")
+      return "NWS-derived gridpoint forecast (not resort-reported).";
+    return "Derived from resort site data (parsed, not manually verified).";
+  }
+
+  // measured
+  if (metric === "Next 24h") return "NWS forecast.";
+  return "Resort-reported snowfall.";
+}
 
 function fmtInches(v: number | null) {
   return v === null ? "—" : `${v}"`;
@@ -107,6 +143,26 @@ export default function Snow() {
     }
     window.location.reload();
   }
+  const resortsWithMiles = useMemo(() => {
+    if (geo.status !== "ready") {
+      return RESORTS.map((r) => ({ resort: r, miles: null as number | null }));
+    }
+
+    const here = { lat: geo.lat, lon: geo.lon };
+    return RESORTS.map((r) => ({
+      resort: r,
+      miles: haversineMiles(here, { lat: r.lat, lon: r.lon }),
+    }))
+      .filter((x) => x.miles <= MAX_MILES)
+      .sort((a, b) => a.miles - b.miles);
+  }, [geo]);
+
+  const resortIdsKey = useMemo(() => {
+    return resortsWithMiles
+      .map((x) => x.resort.id)
+      .sort()
+      .join(",");
+  }, [resortsWithMiles]);
 
   useEffect(() => {
     // 1) Use cached location if fresh (no prompt)
@@ -164,20 +220,6 @@ export default function Snow() {
       },
     );
   }, []);
-
-  const resortsWithMiles = useMemo(() => {
-    if (geo.status !== "ready") {
-      return RESORTS.map((r) => ({ resort: r, miles: null as number | null }));
-    }
-
-    const here = { lat: geo.lat, lon: geo.lon };
-    return RESORTS.map((r) => ({
-      resort: r,
-      miles: haversineMiles(here, { lat: r.lat, lon: r.lon }),
-    }))
-      .filter((x) => x.miles <= MAX_MILES)
-      .sort((a, b) => a.miles - b.miles);
-  }, [geo]);
 
   const driveMilesById = useMemo(() => {
     // Start with fallbacks so the planner still works when location is off.
@@ -310,18 +352,10 @@ export default function Snow() {
     return "green";
   }
 
-  function needsAttention(
-    meta?: { status: string } | null,
-    value?: number | null,
-  ) {
-    // If we have meta, trust it
-    if (meta?.status === "missing" || meta?.status === "derived") return true;
-
-    // Fallback (back-compat): no meta => missing if value is null
-    if (!meta && value == null) return true;
-
-    return false;
-  }
+  const resortsForFetch = useMemo(
+    () => resortsWithMiles.map((x) => x.resort),
+    [resortsWithMiles], // key controls when this changes
+  );
 
   // Load snow data via service abstraction (mock for now)
   useEffect(() => {
@@ -330,7 +364,7 @@ export default function Snow() {
       setSnowLoading(true);
       try {
         const result = await snowService.getSnow({
-          resorts: resortsWithMiles.map((x) => x.resort),
+          resorts: resortsForFetch,
         });
         if (!alive) return;
         setSnowById(result);
@@ -341,7 +375,7 @@ export default function Snow() {
     return () => {
       alive = false;
     };
-  }, [resortsWithMiles]);
+  }, [resortsForFetch]);
 
   const headerNote = useMemo(() => {
     if (geo.status === "loading")
@@ -928,15 +962,44 @@ export default function Snow() {
                         </span>
                         <span className="colNum">
                           {fmtInches(snow.last48In)}
-                          {needsAttention(snow.last48Meta, snow.last48In) ? (
-                            <span title="Missing or derived input"> (!)</span>
-                          ) : null}
+                          {(() => {
+                            const ind = getIndicator(
+                              snow.last48Meta,
+                              snow.last48In,
+                            );
+                            if (!ind) return null;
+                            return (
+                              <span
+                                title={metricTooltip(
+                                  "Last 48h",
+                                  snow.last48Meta,
+                                )}
+                              >
+                                {ind.kind === "warn" ? " (!)" : " (i)"}
+                              </span>
+                            );
+                          })()}
                         </span>
+
                         <span className="colNum">
                           {fmtInches(snow.next24In)}
-                          {needsAttention(snow.next24Meta, snow.next24In) ? (
-                            <span title="Missing or derived input"> (!)</span>
-                          ) : null}
+                          {(() => {
+                            const ind = getIndicator(
+                              snow.next24Meta,
+                              snow.next24In,
+                            );
+                            if (!ind) return null;
+                            return (
+                              <span
+                                title={metricTooltip(
+                                  "Next 24h",
+                                  snow.next24Meta,
+                                )}
+                              >
+                                {ind.kind === "warn" ? " (!)" : " (i)"}
+                              </span>
+                            );
+                          })()}
                         </span>
                         <IonNote className="colUpdated" slot="end">
                           {snow.last48Meta?.updatedAt ??

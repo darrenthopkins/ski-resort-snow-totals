@@ -1,6 +1,6 @@
 import { getOnTheSnowLast48 } from "./resortProviders/onthesnow";
 import type { SnowMetrics, SnowService, GetSnowOptions } from "./types";
-import { getNext24SnowInches } from "./nwsClient";
+import { getNext24SnowInches, getWeekSnowDaily } from "./nwsClient";
 import { MockSnowService } from "./mockSnowService";
 import type { MetricMeta, MetricStatus, SnowSource } from "./types";
 
@@ -12,6 +12,25 @@ function meta(params: {
   provenance?: Record<string, unknown>;
 }): MetricMeta {
   return params;
+}
+
+function lsFlag(key: string): boolean {
+  try {
+    return localStorage.getItem(key) === "1";
+  } catch {
+    return false;
+  }
+}
+
+const DBG = () => lsFlag("srs_debug"); // master
+const DBG_VERBOSE = () => lsFlag("srs_debug_verbose");
+const NO_CACHE = () => lsFlag("srs_debug_nocache");
+
+function dlog(...args: any[]) {
+  if (DBG()) console.log(...args);
+}
+function dvlog(...args: any[]) {
+  if (DBG() && DBG_VERBOSE()) console.log(...args);
 }
 
 const CACHE_MS = 10 * 60 * 1000; // 10 minutes
@@ -41,6 +60,7 @@ function writeCache(cache: CacheMap) {
 }
 
 const memCache: CacheMap = readCache();
+const inflightByResort = new Map<string, Promise<SnowMetrics>>();
 
 function isFresh(entry: CacheEntry) {
   return Date.now() - entry.at < CACHE_MS;
@@ -52,100 +72,142 @@ export class RealSnowService implements SnowService {
   async getSnow(options: GetSnowOptions): Promise<Record<string, SnowMetrics>> {
     const out: Record<string, SnowMetrics> = {};
 
-    for (const r of options.resorts) {
-      // DEBUG: optional cache bypass
-      const noCache = (() => {
-        try {
-          return localStorage.getItem("srs_debug_nocache") === "1";
-        } catch {
-          return false;
-        }
-      })();
+    const nowISO = new Date().toISOString();
+    const safeISO = (s?: string | null) =>
+      s && !Number.isNaN(new Date(s).getTime()) ? s : nowISO;
 
+    const noCache = (() => {
+      try {
+        return localStorage.getItem("srs_debug_nocache") === "1";
+      } catch {
+        return false;
+      }
+    })();
+
+    for (const r of options.resorts) {
+      // ----------------------------
+      // 1) Cache
+      // ----------------------------
       if (!noCache) {
         const cached = memCache[r.id];
         if (cached && isFresh(cached)) {
-          console.log(
-            "[snow] cache HIT",
-            r.id,
-            cached.v.last48In,
-            cached.v.next24In,
-          );
           out[r.id] = cached.v;
           continue;
         }
-      } else {
-        console.log("[snow] cache BYPASSED for", r.id);
       }
 
-      try {
-        const nws = await getNext24SnowInches(r);
+      // ----------------------------
+      // 2) In-flight dedupe (per resort)
+      // ----------------------------
+      if (!("inflightByResort" in globalThis)) {
+        (globalThis as any).inflightByResort = new Map<
+          string,
+          Promise<SnowMetrics>
+        >();
+      }
+      const inflightMap = (globalThis as any).inflightByResort as Map<
+        string,
+        Promise<SnowMetrics>
+      >;
 
-        let last48: {
-          last48In: number | null;
-          updatedAt: string;
-          sourceUrl: string;
-        } | null = null;
+      const existing = inflightMap.get(r.id);
+      if (existing) {
+        out[r.id] = await existing;
+        continue;
+      }
+
+      const p = (async (): Promise<SnowMetrics> => {
         try {
-          last48 = await getOnTheSnowLast48(r);
-          console.log(
-            "[snow] onthesnow result",
-            r.id,
-            last48?.last48In,
-            last48?.sourceUrl,
-          );
+          // Fetch in parallel
+          const [nws, last48, week] = await Promise.all([
+            getNext24SnowInches(r),
+            getOnTheSnowLast48(r).catch(() => null),
+            getWeekSnowDaily(r, 7).catch(() => null),
+          ]);
+
+          const v: SnowMetrics = {
+            last48In: last48?.last48In ?? null,
+            next24In: nws.next24In,
+
+            minTempF: nws.minTempF ?? null,
+            maxTempF: nws.maxTempF ?? null,
+            maxWindMph: nws.maxWindMph ?? null,
+
+            last48Meta: meta({
+              source: "onthesnow",
+              status: last48?.last48In == null ? "missing" : "measured",
+              sourceUrl: last48?.sourceUrl ?? "",
+              updatedAt: safeISO(last48?.updatedAt),
+              provenance:
+                last48?.last48In == null ? { reason: "parse_null" } : undefined,
+            }),
+
+            next24Meta: meta({
+              source: "nws",
+              status: nws.next24In == null ? "missing" : "derived",
+              sourceUrl: nws.sourceUrl ?? "",
+              updatedAt: safeISO(nws.updatedAt),
+              provenance: { kind: "gridpoint" },
+            }),
+
+            minTempMeta: meta({
+              source: "nws",
+              status: nws.minTempF == null ? "missing" : "derived",
+              sourceUrl: nws.sourceUrl ?? "",
+              updatedAt: safeISO(nws.updatedAt),
+            }),
+
+            maxTempMeta: meta({
+              source: "nws",
+              status: nws.maxTempF == null ? "missing" : "derived",
+              sourceUrl: nws.sourceUrl ?? "",
+              updatedAt: safeISO(nws.updatedAt),
+            }),
+
+            maxWindMeta: meta({
+              source: "nws",
+              status: nws.maxWindMph == null ? "missing" : "derived",
+              sourceUrl: nws.sourceUrl ?? "",
+              updatedAt: safeISO(nws.updatedAt),
+            }),
+
+            weekSnowDaily: week?.daily,
+            weekSnowMeta: week
+              ? meta({
+                  source: "nws",
+                  status: "derived",
+                  sourceUrl: week.sourceUrl ?? "",
+                  updatedAt: safeISO(week.updatedAt),
+                  provenance: { kind: "gridpoint_daily_bins", days: 7 },
+                })
+              : undefined,
+          };
+          if (week?.daily?.length) dvlog("[weekbins]", r.id, week.daily);
+
+          memCache[r.id] = { at: Date.now(), v };
+          writeCache(memCache);
+
+          return v;
         } catch {
-          // ignore provider failure
+          const mock = await this.mock.getSnow();
+          const mv =
+            mock[r.id] ??
+            ({
+              last48In: null,
+              next24In: null,
+            } as SnowMetrics);
+
+          memCache[r.id] = { at: Date.now(), v: mv };
+          writeCache(memCache);
+
+          return mv;
+        } finally {
+          inflightMap.delete(r.id);
         }
+      })();
 
-        const v: SnowMetrics = {
-          last48In: last48?.last48In ?? null,
-          next24In: nws.next24In,
-
-          minTempF: nws.minTempF ?? null,
-          maxTempF: nws.maxTempF ?? null,
-          maxWindMph: nws.maxWindMph ?? null,
-
-          last48Meta: meta({
-            source: "onthesnow",
-            status: last48?.last48In == null ? "missing" : "measured",
-            sourceUrl: last48?.sourceUrl ?? "",
-            updatedAt: last48?.updatedAt ?? new Date().toISOString(),
-            provenance:
-              last48?.last48In == null ? { reason: "parse_null" } : undefined,
-          }),
-          next24Meta: meta({
-            source: "nws",
-            status: nws.next24In == null ? "missing" : "derived",
-            sourceUrl: nws.sourceUrl ?? "", // depends on your nwsClient return; add if missing
-            updatedAt: nws.updatedAt ?? new Date().toISOString(),
-          }),
-          minTempMeta: meta({
-            source: "nws",
-            status: nws.minTempF == null ? "missing" : "derived",
-            sourceUrl: nws.sourceUrl ?? "",
-            updatedAt: nws.updatedAt ?? new Date().toISOString(),
-          }),
-        };
-
-        memCache[r.id] = { at: Date.now(), v };
-        writeCache(memCache);
-        out[r.id] = v;
-      } catch {
-        const mock = await this.mock.getSnow();
-        const mv =
-          mock[r.id] ??
-          ({
-            last48In: null,
-            next24In: null,
-            updatedAt: "—",
-            source: "unknown",
-          } as SnowMetrics);
-
-        memCache[r.id] = { at: Date.now(), v: mv };
-        writeCache(memCache);
-        out[r.id] = mv;
-      }
+      inflightMap.set(r.id, p);
+      out[r.id] = await p;
     }
 
     return out;
