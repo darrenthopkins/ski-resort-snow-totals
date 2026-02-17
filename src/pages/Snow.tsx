@@ -50,6 +50,25 @@ type MetricMeta = {
   updatedAt?: string;
 };
 
+function addDaysISO(startISO: string, days: number): string {
+  const d = new Date(startISO + "T00:00:00");
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function formatDow(iso: string) {
+  return new Date(iso + "T00:00:00").toLocaleDateString(undefined, {
+    weekday: "short",
+  });
+}
+
+function formatMD(iso: string) {
+  return new Date(iso + "T00:00:00").toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+}
+
 function getIndicator(meta?: MetricMeta | null, value?: number | null) {
   // Back-compat: if meta missing, treat null as missing
   if (!meta) return value == null ? { kind: "warn" as const } : null;
@@ -299,6 +318,17 @@ export default function Snow() {
     return weekVM.days.find((d) => d.dateISO === key) ?? weekVM.days[0] ?? null;
   }, [weekVM, selectedDateISO]);
 
+  useEffect(() => {
+    if (selectedDateISO) return;
+    if (!weekVM?.days?.length) return;
+
+    const best = weekVM.days.reduce((a, b) =>
+      b.topPick.score > a.topPick.score ? b : a,
+    );
+
+    setSelectedDateISO(best.dateISO);
+  }, [weekVM, selectedDateISO, setSelectedDateISO]);
+
   function dayOfWeekShort(dateISO: string): string {
     const [y, m, d] = dateISO.split("-").map(Number);
     const dt = new Date(y, (m ?? 1) - 1, d ?? 1);
@@ -377,6 +407,38 @@ export default function Snow() {
     };
   }, [resortsForFetch]);
 
+  const [selectedDayISO, setSelectedDayISO] = useState<string>(() => {
+    return localStorage.getItem("srs_selected_day_iso") ?? "";
+  });
+
+  useEffect(() => {
+    if (selectedDateISO) return;
+    if (!weekVM) return;
+
+    // Preferred: if you have per-day objects already (selectedDay model), use them.
+    // Otherwise: use decision.picks.
+    const decision = weekVM.summary?.decision;
+    const picks = decision?.picks ?? [];
+
+    if (!picks.length) return;
+
+    // Choose "best" by score among picks. If score is missing, just take first.
+    const best = picks.reduce((a: any, b: any) => (b.score > a.score ? b : a));
+    const iso = best.dateISO ?? decision?.window?.startISO ?? null;
+
+    if (iso) setSelectedDateISO(iso);
+  }, [weekVM, selectedDateISO, setSelectedDateISO]);
+
+  useEffect(() => {
+    if (selectedDayISO)
+      localStorage.setItem("srs_selected_day_iso", selectedDayISO);
+  }, [selectedDayISO]);
+
+  const nextDayISO = useMemo(() => {
+    if (!selectedDayISO) return "";
+    return addDaysISO(selectedDayISO, 1);
+  }, [selectedDayISO]);
+
   const headerNote = useMemo(() => {
     if (geo.status === "loading")
       return <IonNote>Getting your location…</IonNote>;
@@ -421,9 +483,26 @@ export default function Snow() {
                 >
                   {(() => {
                     const decision = weekVM.summary.decision;
-                    const picks = decision.picks ?? [];
+
+                    // ✅ drive hero from the selected day tile
+                    const heroPicks = selectedDay
+                      ? [selectedDay.topPick, ...selectedDay.runnersUp].slice(
+                          0,
+                          2,
+                        )
+                      : (decision.picks ?? []);
+
+                    const heroDateISO =
+                      selectedDay?.dateISO ?? decision.window?.startISO ?? null;
+
+                    const windowText = heroDateISO
+                      ? `${dayOfWeekShort(heroDateISO)} (${fmtMonthDay(heroDateISO)})`
+                      : decision.window?.label
+                        ? `${decision.window.label} (${fmtMonthDay(decision.window.startISO)}–${fmtMonthDay(decision.window.endISO)})`
+                        : "—";
+
                     const pickResortIds = Array.from(
-                      new Set(picks.map((p) => p.resortId)),
+                      new Set(heroPicks.map((p) => p.resortId)),
                     );
 
                     const next24 =
@@ -446,17 +525,15 @@ export default function Snow() {
                             .join(" · ")
                         : null;
 
-                    const labels = picks.map((p) => p.label);
+                    const labels = heroPicks.map((p) => p.label);
                     const overall = rollupLabel(labels);
                     const overallColors = labelColors(overall);
 
                     const sameResort =
-                      picks.length >= 2 &&
-                      picks.every((p) => p.resortId === picks[0].resortId);
-
-                    const windowText = decision.window?.label
-                      ? `${decision.window.label} (${fmtMonthDay(decision.window.startISO)}–${fmtMonthDay(decision.window.endISO)})`
-                      : `${fmtMonthDay(picks[0]?.dateISO ?? decision.window.startISO)}–${fmtMonthDay(picks[picks.length - 1]?.dateISO ?? decision.window.endISO)}`;
+                      heroPicks.length >= 2 &&
+                      heroPicks.every(
+                        (p) => p.resortId === heroPicks[0].resortId,
+                      );
 
                     return (
                       <div
@@ -513,7 +590,7 @@ export default function Snow() {
                                 lineHeight: 1.1,
                               }}
                             >
-                              {picks[0]?.resortName ?? "—"}
+                              {heroPicks[0]?.resortName ?? "—"}
                             </div>
                             <div
                               style={{
@@ -534,7 +611,9 @@ export default function Snow() {
                                 lineHeight: 1.15,
                               }}
                             >
-                              {picks.length > 0 ? "Plan" : "No plan yet"}
+                              {heroPicks.length > 0
+                                ? `Best for ${dayOfWeekShort(heroDateISO)} (${fmtMonthDay(heroDateISO)})`
+                                : "No plan yet"}
                             </div>
                             <div
                               style={{
@@ -543,11 +622,11 @@ export default function Snow() {
                                 gap: 6,
                               }}
                             >
-                              {picks.slice(0, 2).map((p) => {
+                              {heroPicks.slice(0, 2).map((p, idx) => {
                                 const c = labelColors(p.label);
                                 return (
                                   <div
-                                    key={p.dateISO + p.resortId}
+                                    key={(heroDateISO ?? "na") + p.resortId}
                                     style={{
                                       display: "flex",
                                       alignItems: "center",
@@ -562,13 +641,18 @@ export default function Snow() {
                                       }}
                                     >
                                       <div style={{ fontWeight: 800 }}>
-                                        {dayOfWeekShort(p.dateISO)} ·{" "}
+                                        {idx === 0
+                                          ? "Top pick: "
+                                          : "Alternate: "}
                                         {p.resortName}
                                       </div>
+
                                       <div
                                         style={{ fontSize: 12, opacity: 0.7 }}
                                       >
-                                        {fmtMonthDay(p.dateISO)}
+                                        {heroDateISO
+                                          ? fmtMonthDay(heroDateISO)
+                                          : "—"}
                                       </div>
                                     </div>
 
@@ -619,7 +703,8 @@ export default function Snow() {
                               alignSelf: "center",
                             }}
                           >
-                            {picks.length} day{picks.length === 1 ? "" : "s"} ·{" "}
+                            {heroPicks.length} day
+                            {heroPicks.length === 1 ? "" : "s"} ·{" "}
                             {sameResort ? "single resort" : "multi resort"}
                           </div>
                         </div>
