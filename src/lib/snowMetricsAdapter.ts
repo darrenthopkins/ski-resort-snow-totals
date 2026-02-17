@@ -41,16 +41,22 @@ export function snowMetricsToCandidates(params: {
     const estimatedLast24 = last48 == null ? 0 : last48 / 2;
     const forecastNext24 = next24 == null ? 0 : next24;
 
-    // Back-compat default (v0): combined signal for a single day card
-    // Week planner passes dayIndex explicitly to get the honest projection model.
+    // Preferred: NWS daily bins if available (already day-bucketed)
+    const weekDaily = m?.weekSnowDaily;
+    const binnedForDay =
+      weekDaily?.find((d) => d.dateISO === dateISO)?.inches ?? null;
+
+    // New snow for this specific day
     const newSnowInches =
-      dayIndex == null
-        ? estimatedLast24 + forecastNext24
-        : dayIndex === 0
-          ? estimatedLast24
-          : dayIndex === 1
-            ? forecastNext24
-            : 0;
+      binnedForDay != null
+        ? binnedForDay
+        : dayIndex == null
+          ? estimatedLast24 + forecastNext24
+          : dayIndex === 0
+            ? estimatedLast24
+            : dayIndex === 1
+              ? forecastNext24
+              : 0;
 
     // Defaults (until we add base/temp/wind sources):
     const facts: DayFacts = {
@@ -77,7 +83,7 @@ export function isoDateIsWeekend(dateISO: string): boolean {
   // and use getUTCDay for determinism in tests.
   const [y, m, d] = dateISO.split("-").map((x) => Number(x));
   if (!y || !m || !d) throw new Error(`Invalid dateISO: ${dateISO}`);
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  const day = dt.getUTCDay(); // 0 Sun .. 6 Sat
+  const dt = new Date(y, m - 1, d); // local midnight
+  const day = dt.getDay(); // local
   return day === 0 || day === 6;
 }

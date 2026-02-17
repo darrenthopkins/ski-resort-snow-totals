@@ -38,6 +38,9 @@ export type SnowMetrics = {
   minTempMeta?: MetricMeta;
   maxTempMeta?: MetricMeta;
   maxWindMeta?: MetricMeta;
+
+  weekSnowDaily?: Array<{ dateISO: string; inches: number | null }>;
+  weekSnowMeta?: MetricMeta;
 };
 
 export type GetSnowOptions = {
