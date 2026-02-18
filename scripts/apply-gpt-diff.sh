@@ -149,6 +149,8 @@ else
   echo "git apply failed. Retrying with --reject --whitespace=fix ..." >&2
   git apply --reject --whitespace=fix "${patch_path}" || {
     echo "Error: patch still failed. Look for *.rej files and apply those hunks manually." >&2
+    echo "----- Patch head (debug) -----" >&2
+    sed -n '1,120p' "${patch_path}" >&2
     echo "Patch saved at: ${patch_path}" >&2
     exit 1
   }
