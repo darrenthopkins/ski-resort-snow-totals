@@ -64,3 +64,6 @@ vendor/
 
 # GPT patch scratch
 .gpt_patches/
+
+# GPT scratch
+.gpt_patches/
