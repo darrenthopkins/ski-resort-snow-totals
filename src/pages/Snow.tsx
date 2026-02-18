@@ -481,301 +481,162 @@ export default function Snow() {
                 <div
                   style={{ display: "flex", flexDirection: "column", gap: 6 }}
                 >
-                  {(() => {
-                    const decision = weekVM.summary.decision;
+{(() => {
+  const decision = weekVM.summary.decision;
 
-                    // ✅ drive hero from the selected day tile
-                    const heroPicks = selectedDay
-                      ? [selectedDay.topPick, ...selectedDay.runnersUp].slice(
-                          0,
-                          2,
-                        )
-                      : (decision.picks ?? []);
+  // ✅ single-day hero: selected day topPick (fallback to decision pick)
+  const primaryPick = selectedDay?.topPick ?? decision.picks?.[0] ?? null;
+  const heroDateISO = selectedDay?.dateISO ?? decision.window?.startISO ?? null;
 
-                    const heroDateISO =
-                      selectedDay?.dateISO ?? decision.window?.startISO ?? null;
+  const headline = heroDateISO
+    ? `Best for ${dayOfWeekShort(heroDateISO)} (${fmtMonthDay(heroDateISO)})`
+    : decision.window?.label
+      ? `${decision.window.label} (${fmtMonthDay(decision.window.startISO)}–${fmtMonthDay(decision.window.endISO)})`
+      : "Best for —";
 
-                    const windowText = heroDateISO
-                      ? `${dayOfWeekShort(heroDateISO)} (${fmtMonthDay(heroDateISO)})`
-                      : decision.window?.label
-                        ? `${decision.window.label} (${fmtMonthDay(decision.window.startISO)}–${fmtMonthDay(decision.window.endISO)})`
-                        : "—";
+  const primaryResortId = primaryPick?.resortId ?? null;
 
-                    const pickResortIds = Array.from(
-                      new Set(heroPicks.map((p) => p.resortId)),
-                    );
+  const next24Updated =
+    (primaryResortId ? snowById[primaryResortId]?.next24Meta?.updatedAt : null) ??
+    null;
+  const last48Updated =
+    (primaryResortId ? snowById[primaryResortId]?.last48Meta?.updatedAt : null) ??
+    null;
 
-                    const next24 =
-                      pickResortIds
-                        .map((id) => snowById[id]?.next24Meta?.updatedAt)
-                        .find((x) => x != null) ?? null;
+  const provenanceLine =
+    next24Updated || last48Updated
+      ? [
+          next24Updated ? `NWS ${shortTimeStamp(next24Updated)}` : null,
+          last48Updated ? `Resort ${shortTimeStamp(last48Updated)}` : null,
+        ]
+          .filter(Boolean)
+          .join(" · ")
+      : null;
 
-                    const last48 =
-                      pickResortIds
-                        .map((id) => snowById[id]?.last48Meta?.updatedAt)
-                        .find((x) => x != null) ?? null;
+  const overall = primaryPick?.label ?? "skip";
+  const overallColors = labelColors(overall);
 
-                    const provenanceLine =
-                      next24 || last48
-                        ? [
-                            next24 ? `NWS ${shortTimeStamp(next24)}` : null,
-                            last48 ? `Resort ${shortTimeStamp(last48)}` : null,
-                          ]
-                            .filter(Boolean)
-                            .join(" · ")
-                        : null;
+  // Prefer selected-day bullets, fallback to model-wide why
+  const whyBullets =
+    (selectedDay?.bullets?.length ? selectedDay.bullets : decision.why ?? []) ??
+    [];
 
-                    const labels = heroPicks.map((p) => p.label);
-                    const overall = rollupLabel(labels);
-                    const overallColors = labelColors(overall);
+  return (
+    <div
+      style={{
+        borderRadius: 16,
+        padding: 14,
+        background: "#ffffff08",
+        border: "1px solid #ffffff1f",
+        display: "flex",
+        flexDirection: "column",
+        gap: 10,
+      }}
+    >
+      {/* Header */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          gap: 12,
+        }}
+      >
+        <div style={{ fontSize: 13, fontWeight: 800, opacity: 0.85 }}>
+          Feb vacation plan
+        </div>
+        <div style={{ fontSize: 12, opacity: 0.75 }}>{headline}</div>
+      </div>
 
-                    const sameResort =
-                      heroPicks.length >= 2 &&
-                      heroPicks.every(
-                        (p) => p.resortId === heroPicks[0].resortId,
-                      );
+      {/* Provenance */}
+      {provenanceLine ? (
+        <div style={{ fontSize: 11, opacity: 0.55, marginTop: -6 }}>
+          {provenanceLine}
+        </div>
+      ) : null}
 
-                    return (
-                      <div
-                        style={{
-                          borderRadius: 16,
-                          padding: 14,
-                          background: "#ffffff08",
-                          border: "1px solid #ffffff1f",
-                          display: "flex",
-                          flexDirection: "column",
-                          gap: 10,
-                        }}
-                      >
-                        {/* Header */}
-                        <div
-                          style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            gap: 12,
-                          }}
-                        >
-                          <div
-                            style={{
-                              fontSize: 13,
-                              fontWeight: 800,
-                              opacity: 0.85,
-                            }}
-                          >
-                            Feb vacation plan
-                          </div>
-                          <div style={{ fontSize: 12, opacity: 0.6 }}>
-                            {windowText}
-                          </div>
-                        </div>
-                        {provenanceLine ? (
-                          <div
-                            style={{
-                              fontSize: 11,
-                              opacity: 0.55,
-                              marginTop: -6,
-                            }}
-                          >
-                            {provenanceLine}
-                          </div>
-                        ) : null}
+      {/* Primary recommendation (single-day, confident) */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          gap: 12,
+        }}
+      >
+        <div style={{ fontSize: 24, fontWeight: 900, lineHeight: 1.1 }}>
+          {primaryPick?.resortName ?? "—"}
+        </div>
 
-                        {/* Primary recommendation */}
-                        {sameResort ? (
-                          <>
-                            <div
-                              style={{
-                                fontSize: 24,
-                                fontWeight: 900,
-                                lineHeight: 1.1,
-                              }}
-                            >
-                              {heroPicks[0]?.resortName ?? "—"}
-                            </div>
-                            <div
-                              style={{
-                                fontSize: 14,
-                                fontWeight: 700,
-                                opacity: 0.75,
-                              }}
-                            >
-                              {sameResortCopy(overall)}
-                            </div>
-                          </>
-                        ) : (
-                          <>
-                            <div
-                              style={{
-                                fontSize: 18,
-                                fontWeight: 900,
-                                lineHeight: 1.15,
-                              }}
-                            >
-                              {heroPicks.length > 0
-                                ? `Best for ${dayOfWeekShort(heroDateISO)} (${fmtMonthDay(heroDateISO)})`
-                                : "No plan yet"}
-                            </div>
-                            <div
-                              style={{
-                                display: "flex",
-                                flexDirection: "column",
-                                gap: 6,
-                              }}
-                            >
-                              {heroPicks.slice(0, 2).map((p, idx) => {
-                                const c = labelColors(p.label);
-                                return (
-                                  <div
-                                    key={(heroDateISO ?? "na") + p.resortId}
-                                    style={{
-                                      display: "flex",
-                                      alignItems: "center",
-                                      justifyContent: "space-between",
-                                      gap: 10,
-                                    }}
-                                  >
-                                    <div
-                                      style={{
-                                        display: "flex",
-                                        flexDirection: "column",
-                                      }}
-                                    >
-                                      <div style={{ fontWeight: 800 }}>
-                                        {idx === 0
-                                          ? "Top pick: "
-                                          : "Alternate: "}
-                                        {p.resortName}
-                                      </div>
+        <div
+          style={{
+            display: "inline-flex",
+            padding: "6px 10px",
+            borderRadius: 999,
+            background: overallColors.bg,
+            border: `1px solid ${overallColors.border}`,
+            fontWeight: 900,
+            fontSize: 12,
+            letterSpacing: 0.2,
+            whiteSpace: "nowrap",
+          }}
+        >
+          {labelPhrase(overall)}
+        </div>
+      </div>
 
-                                      <div
-                                        style={{ fontSize: 12, opacity: 0.7 }}
-                                      >
-                                        {heroDateISO
-                                          ? fmtMonthDay(heroDateISO)
-                                          : "—"}
-                                      </div>
-                                    </div>
+      <div style={{ fontSize: 14, fontWeight: 700, opacity: 0.75 }}>
+        {sameResortCopy(overall)}
+      </div>
 
-                                    <div
-                                      style={{
-                                        display: "inline-flex",
-                                        padding: "6px 10px",
-                                        borderRadius: 999,
-                                        background: c.bg,
-                                        border: `1px solid ${c.border}`,
-                                        fontWeight: 900,
-                                        fontSize: 12,
-                                        letterSpacing: 0.2,
-                                        whiteSpace: "nowrap",
-                                      }}
-                                    >
-                                      {labelPhrase(p.label)}
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </>
-                        )}
+      {/* Why bullets (optional) */}
+      {whyBullets.length ? (
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 6,
+            marginTop: 2,
+          }}
+        >
+          {whyBullets.slice(0, 3).map((b, i) => (
+            <div key={i} style={{ fontSize: 14, opacity: 0.9 }}>
+              • {b}
+            </div>
+          ))}
+        </div>
+      ) : null}
 
-                        {/* Overall confidence chip */}
-                        <div
-                          style={{ display: "flex", gap: 8, flexWrap: "wrap" }}
-                        >
-                          <div
-                            style={{
-                              display: "inline-flex",
-                              padding: "6px 10px",
-                              borderRadius: 999,
-                              background: overallColors.bg,
-                              border: `1px solid ${overallColors.border}`,
-                              fontWeight: 900,
-                              fontSize: 12,
-                              letterSpacing: 0.2,
-                            }}
-                          >
-                            {labelPhrase(overall)}
-                          </div>
-                          <div
-                            style={{
-                              fontSize: 12,
-                              opacity: 0.7,
-                              alignSelf: "center",
-                            }}
-                          >
-                            {heroPicks.length} day
-                            {heroPicks.length === 1 ? "" : "s"} ·{" "}
-                            {sameResort ? "single resort" : "multi resort"}
-                          </div>
-                        </div>
+      {/* Backup (single line) */}
+      {decision.backup ? (
+        <div style={{ marginTop: 2, fontSize: 12, opacity: 0.75 }}>
+          Backup:{" "}
+          <strong style={{ opacity: 0.95 }}>{decision.backup.resortName}</strong>
+          {decision.backup.reason ? (
+            <span style={{ opacity: 0.85 }}> — {decision.backup.reason}</span>
+          ) : null}
+        </div>
+      ) : null}
 
-                        {/* Why bullets */}
-                        {decision.why?.length ? (
-                          <div
-                            style={{
-                              display: "flex",
-                              flexDirection: "column",
-                              gap: 6,
-                              marginTop: 2,
-                            }}
-                          >
-                            {decision.why.slice(0, 3).map((b, i) => (
-                              <div
-                                key={i}
-                                style={{ fontSize: 14, opacity: 0.9 }}
-                              >
-                                • {b}
-                              </div>
-                            ))}
-                          </div>
-                        ) : null}
-
-                        {/* Backup */}
-                        {decision.backup ? (
-                          <div style={{ marginTop: 2 }}>
-                            <div
-                              style={{
-                                fontSize: 12,
-                                fontWeight: 800,
-                                opacity: 0.65,
-                              }}
-                            >
-                              Backup
-                            </div>
-                            <div style={{ fontSize: 14 }}>
-                              <strong>{decision.backup.resortName}</strong>
-                              <span style={{ opacity: 0.85 }}>
-                                {" "}
-                                — {decision.backup.reason}
-                              </span>
-                            </div>
-                          </div>
-                        ) : null}
-
-                        {/* CTA Row */}
-                        <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
-                          <IonButton expand="block" style={{ flex: 1 }}>
-                            Directions
-                          </IonButton>
-                          <IonButton
-                            expand="block"
-                            fill="outline"
-                            style={{ flex: 1 }}
-                          >
-                            Share plan
-                          </IonButton>
-                          <IonButton
-                            expand="block"
-                            fill="outline"
-                            style={{ flex: 1 }}
-                            onClick={refreshSnow}
-                          >
-                            Refresh data
-                          </IonButton>
-                        </div>
-                      </div>
-                    );
-                  })()}
+      {/* CTA Row */}
+      <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
+        <IonButton expand="block" style={{ flex: 1 }}>
+          Directions
+        </IonButton>
+        <IonButton expand="block" fill="outline" style={{ flex: 1 }}>
+          Share plan
+        </IonButton>
+        <IonButton
+          expand="block"
+          fill="outline"
+          style={{ flex: 1 }}
+          onClick={refreshSnow}
+        >
+          Refresh data
+        </IonButton>
+      </div>
+    </div>
+  );
+})()}
 
                   {/* Timeline strip (v0) */}
                   <div
