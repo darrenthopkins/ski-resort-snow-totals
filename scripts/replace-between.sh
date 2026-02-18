@@ -6,25 +6,21 @@ usage() {
 Replace a region in a file between start/end marker lines (inclusive) with a replacement block.
 
 Input:
-  - default: reads replacement block from stdin (paste, then Ctrl-D)
-  - --pbpaste: reads replacement block from macOS clipboard (pbpaste)
-  - --file-repl <path>: reads replacement block from a file
+  - default: reads replacement from stdin (paste, then Ctrl-D)
+  - --pbpaste: reads replacement from clipboard (macOS)
+  - --file-repl PATH: reads replacement from a file
 
 Matching:
-  - default: exact match on full line (including whitespace)
+  - default: exact match on the full line (including whitespace)
   - --trim: match after trimming leading/trailing whitespace
-  - --nth N: replace the Nth occurrence of (start..end) region (default 1)
+  - --nth N: replace the Nth occurrence of the (start..end) region (default 1)
 
 Safety:
-  - --backup: save a timestamped .bak copy
-  - --dry-run: do not modify file; print a diff
+  - --backup: save a timestamped .bak copy of the target file
+  - --dry-run: do not modify file; print a unified diff
 
 Usage:
   ./scripts/replace-between.sh --file path --start '...' --end '...' [--pbpaste|--file-repl PATH] [--trim] [--nth N] [--backup] [--dry-run]
-
-Examples:
-  ./scripts/replace-between.sh --file src/pages/Snow.tsx --start '{(() => {' --end '})()}' --pbpaste --trim --backup
-  ./scripts/replace-between.sh --file src/pages/Snow.tsx --start '{(() => {' --end '})()}' --file-repl hero.txt --trim --nth 1 --backup
 EOF
 }
 
@@ -96,7 +92,6 @@ if [[ $DO_BACKUP -eq 1 ]]; then
   cp "$FILE" "${FILE}.bak.$(date +%Y%m%d_%H%M%S)"
 fi
 
-# Helper: trim function inside awk
 awk -v start="$START" -v end="$END" -v repfile="$tmp_rep" -v trim="$TRIM" -v nth="$NTH" '
   function ltrim(s) { sub(/^[ \t\r\n]+/, "", s); return s }
   function rtrim(s) { sub(/[ \t\r\n]+$/, "", s); return s }
@@ -122,7 +117,6 @@ awk -v start="$START" -v end="$END" -v repfile="$tmp_rep" -v trim="$TRIM" -v nth
     }
 
     if (inblock) {
-      # swallow original lines until end marker (inclusive)
       if (cmp == e_cmp) { inblock=0; next }
       next
     }
@@ -131,18 +125,9 @@ awk -v start="$START" -v end="$END" -v repfile="$tmp_rep" -v trim="$TRIM" -v nth
   }
 
   END {
-    if (seen == 0) {
-      print "ERROR: start marker not found" > "/dev/stderr"
-      exit 3
-    }
-    if (seen < nth) {
-      print "ERROR: start marker found " seen " time(s), but --nth=" nth " was requested" > "/dev/stderr"
-      exit 4
-    }
-    if (replaced==0) {
-      print "ERROR: did not replace region (internal)" > "/dev/stderr"
-      exit 5
-    }
+    if (seen == 0) { print "ERROR: start marker not found" > "/dev/stderr"; exit 3 }
+    if (seen < nth) { print "ERROR: start marker found " seen " time(s), but --nth=" nth " requested" > "/dev/stderr"; exit 4 }
+    if (replaced==0) { print "ERROR: did not replace region" > "/dev/stderr"; exit 5 }
   }
 ' "$FILE" > "$tmp_out"
 
