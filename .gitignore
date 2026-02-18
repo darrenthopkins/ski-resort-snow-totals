@@ -70,3 +70,7 @@ vendor/
 
 # GPT scratch
 .gpt_patches/
+
+# GPT script backups
+*.bak.*
+
