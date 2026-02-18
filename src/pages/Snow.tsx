@@ -21,6 +21,15 @@ import type { SnowMetrics } from "../services/snow/types";
 import { todayISO } from "../lib/date";
 import { buildWeekPlan } from "../lib/weekPlanner";
 import { buildWeekPlanViewModel } from "../lib/weekPlannerViewModel";
+import { IonIcon } from "@ionic/react";
+import {
+  snowOutline,
+  partlySunnyOutline,
+  carOutline,
+  navigateOutline,
+  shareOutline,
+  refreshOutline,
+} from "ionicons/icons";
 
 const MAX_MILES = 110;
 
@@ -481,162 +490,320 @@ export default function Snow() {
                 <div
                   style={{ display: "flex", flexDirection: "column", gap: 6 }}
                 >
-{(() => {
-  const decision = weekVM.summary.decision;
+                  {(() => {
+                    const decision = weekVM.summary.decision;
 
-  // ✅ single-day hero: selected day topPick (fallback to decision pick)
-  const primaryPick = selectedDay?.topPick ?? decision.picks?.[0] ?? null;
-  const heroDateISO = selectedDay?.dateISO ?? decision.window?.startISO ?? null;
+                    // ✅ single-day hero: selected day topPick (fallback to decision pick)
+                    const primaryPick =
+                      selectedDay?.topPick ?? decision.picks?.[0] ?? null;
+                    const heroDateISO =
+                      selectedDay?.dateISO ?? decision.window?.startISO ?? null;
 
-  const headline = heroDateISO
-    ? `Best for ${dayOfWeekShort(heroDateISO)} (${fmtMonthDay(heroDateISO)})`
-    : decision.window?.label
-      ? `${decision.window.label} (${fmtMonthDay(decision.window.startISO)}–${fmtMonthDay(decision.window.endISO)})`
-      : "Best for —";
+                    const headline = heroDateISO
+                      ? `Best for ${dayOfWeekShort(heroDateISO)} (${fmtMonthDay(heroDateISO)})`
+                      : decision.window?.label
+                        ? `${decision.window.label} (${fmtMonthDay(decision.window.startISO)}–${fmtMonthDay(decision.window.endISO)})`
+                        : "Best for —";
 
-  const primaryResortId = primaryPick?.resortId ?? null;
+                    const primaryResortId = primaryPick?.resortId ?? null;
 
-  const next24Updated =
-    (primaryResortId ? snowById[primaryResortId]?.next24Meta?.updatedAt : null) ??
-    null;
-  const last48Updated =
-    (primaryResortId ? snowById[primaryResortId]?.last48Meta?.updatedAt : null) ??
-    null;
+                    const next24Updated =
+                      (primaryResortId
+                        ? snowById[primaryResortId]?.next24Meta?.updatedAt
+                        : null) ?? null;
 
-  const provenanceLine =
-    next24Updated || last48Updated
-      ? [
-          next24Updated ? `NWS ${shortTimeStamp(next24Updated)}` : null,
-          last48Updated ? `Resort ${shortTimeStamp(last48Updated)}` : null,
-        ]
-          .filter(Boolean)
-          .join(" · ")
-      : null;
+                    const last48Updated =
+                      (primaryResortId
+                        ? snowById[primaryResortId]?.last48Meta?.updatedAt
+                        : null) ?? null;
 
-  const overall = primaryPick?.label ?? "skip";
-  const overallColors = labelColors(overall);
+                    const provenanceLine =
+                      next24Updated || last48Updated
+                        ? [
+                            next24Updated
+                              ? `NWS ${shortTimeStamp(next24Updated)}`
+                              : null,
+                            last48Updated
+                              ? `Resort ${shortTimeStamp(last48Updated)}`
+                              : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")
+                        : null;
 
-  // Prefer selected-day bullets, fallback to model-wide why
-  const whyBullets =
-    (selectedDay?.bullets?.length ? selectedDay.bullets : decision.why ?? []) ??
-    [];
+                    const overall = primaryPick?.label ?? "skip";
+                    const overallColors = labelColors(overall);
 
-  return (
-    <div
-      style={{
-        borderRadius: 16,
-        padding: 14,
-        background: "#ffffff08",
-        border: "1px solid #ffffff1f",
-        display: "flex",
-        flexDirection: "column",
-        gap: 10,
-      }}
-    >
-      {/* Header */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          gap: 12,
-        }}
-      >
-        <div style={{ fontSize: 13, fontWeight: 800, opacity: 0.85 }}>
-          Feb vacation plan
-        </div>
-        <div style={{ fontSize: 12, opacity: 0.75 }}>{headline}</div>
-      </div>
+                    // Prefer selected-day bullets, fallback to model-wide why
+                    const whyBullets =
+                      (selectedDay?.bullets?.length
+                        ? selectedDay.bullets
+                        : decision.why ?? []) ?? [];
 
-      {/* Provenance */}
-      {provenanceLine ? (
-        <div style={{ fontSize: 11, opacity: 0.55, marginTop: -6 }}>
-          {provenanceLine}
-        </div>
-      ) : null}
+                    // Friendly formatting for known bullet types (no planner changes)
+                    function renderWhyRow(b: string, i: number) {
+                      const text = String(b ?? "");
 
-      {/* Primary recommendation (single-day, confident) */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "flex-start",
-          justifyContent: "space-between",
-          gap: 12,
-        }}
-      >
-        <div style={{ fontSize: 24, fontWeight: 900, lineHeight: 1.1 }}>
-          {primaryPick?.resortName ?? "—"}
-        </div>
+                      // Snow signal line: replace confusing suffix
+                      if (text.toLowerCase().startsWith("snow signal:")) {
+                        const friendly = text.replace(
+                          /\(last24\+next24 proxy\)/gi,
+                          "(last 24 hrs → next 24 hrs)",
+                        );
+                        return (
+                          <div
+                            key={i}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 10,
+                              fontSize: 14,
+                              opacity: 0.92,
+                            }}
+                          >
+                            <IonIcon
+                              icon={snowOutline}
+                              style={{ fontSize: 18, opacity: 0.85 }}
+                              aria-hidden="true"
+                            />
+                            <span>{friendly}</span>
+                          </div>
+                        );
+                      }
 
-        <div
-          style={{
-            display: "inline-flex",
-            padding: "6px 10px",
-            borderRadius: 999,
-            background: overallColors.bg,
-            border: `1px solid ${overallColors.border}`,
-            fontWeight: 900,
-            fontSize: 12,
-            letterSpacing: 0.2,
-            whiteSpace: "nowrap",
-          }}
-        >
-          {labelPhrase(overall)}
-        </div>
-      </div>
+                      // Weather-ish line: anything containing °F
+                      if (text.includes("°F") || text.toLowerCase().includes("wind")) {
+                        return (
+                          <div
+                            key={i}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 10,
+                              fontSize: 14,
+                              opacity: 0.92,
+                            }}
+                          >
+                            <IonIcon
+                              icon={partlySunnyOutline}
+                              style={{ fontSize: 18, opacity: 0.85 }}
+                              aria-hidden="true"
+                            />
+                            <span>{text}</span>
+                          </div>
+                        );
+                      }
 
-      <div style={{ fontSize: 14, fontWeight: 700, opacity: 0.75 }}>
-        {sameResortCopy(overall)}
-      </div>
+                      // Drive line
+                      if (text.toLowerCase().startsWith("drive")) {
+                        return (
+                          <div
+                            key={i}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 10,
+                              fontSize: 14,
+                              opacity: 0.92,
+                            }}
+                          >
+                            <IonIcon
+                              icon={carOutline}
+                              style={{ fontSize: 18, opacity: 0.85 }}
+                              aria-hidden="true"
+                            />
+                            <span>{text}</span>
+                          </div>
+                        );
+                      }
 
-      {/* Why bullets (optional) */}
-      {whyBullets.length ? (
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: 6,
-            marginTop: 2,
-          }}
-        >
-          {whyBullets.slice(0, 3).map((b, i) => (
-            <div key={i} style={{ fontSize: 14, opacity: 0.9 }}>
-              • {b}
-            </div>
-          ))}
-        </div>
-      ) : null}
+                      // Default fallback (still no bullet dot)
+                      return (
+                        <div
+                          key={i}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 10,
+                            fontSize: 14,
+                            opacity: 0.92,
+                          }}
+                        >
+                          <span style={{ width: 18 }} />
+                          <span>{text}</span>
+                        </div>
+                      );
+                    }
 
-      {/* Backup (single line) */}
-      {decision.backup ? (
-        <div style={{ marginTop: 2, fontSize: 12, opacity: 0.75 }}>
-          Backup:{" "}
-          <strong style={{ opacity: 0.95 }}>{decision.backup.resortName}</strong>
-          {decision.backup.reason ? (
-            <span style={{ opacity: 0.85 }}> — {decision.backup.reason}</span>
-          ) : null}
-        </div>
-      ) : null}
+                    return (
+                      <div
+                        style={{
+                          borderRadius: 16,
+                          padding: 14,
+                          background: "#ffffff08",
+                          border: "1px solid #ffffff1f",
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 10,
+                        }}
+                      >
+                        {/* Header */}
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            gap: 12,
+                          }}
+                        >
+                          <div
+                            style={{
+                              fontSize: 13,
+                              fontWeight: 800,
+                              opacity: 0.85,
+                            }}
+                          >
+                            Feb vacation plan
+                          </div>
+                          <div style={{ fontSize: 12, opacity: 0.75 }}>
+                            {headline}
+                          </div>
+                        </div>
 
-      {/* CTA Row */}
-      <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
-        <IonButton expand="block" style={{ flex: 1 }}>
-          Directions
-        </IonButton>
-        <IonButton expand="block" fill="outline" style={{ flex: 1 }}>
-          Share plan
-        </IonButton>
-        <IonButton
-          expand="block"
-          fill="outline"
-          style={{ flex: 1 }}
-          onClick={refreshSnow}
-        >
-          Refresh data
-        </IonButton>
-      </div>
-    </div>
-  );
-})()}
+                        {/* Provenance */}
+                        {provenanceLine ? (
+                          <div
+                            style={{
+                              fontSize: 11,
+                              opacity: 0.55,
+                              marginTop: -6,
+                            }}
+                          >
+                            {provenanceLine}
+                          </div>
+                        ) : null}
+
+                        {/* Primary recommendation */}
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "flex-start",
+                            justifyContent: "space-between",
+                            gap: 12,
+                          }}
+                        >
+                          <div
+                            style={{
+                              fontSize: 24,
+                              fontWeight: 900,
+                              lineHeight: 1.1,
+                            }}
+                          >
+                            {primaryPick?.resortName ?? "—"}
+                          </div>
+
+                          <div
+                            style={{
+                              display: "inline-flex",
+                              padding: "6px 10px",
+                              borderRadius: 999,
+                              background: overallColors.bg,
+                              border: `1px solid ${overallColors.border}`,
+                              fontWeight: 900,
+                              fontSize: 12,
+                              letterSpacing: 0.2,
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {labelPhrase(overall)}
+                          </div>
+                        </div>
+
+                        <div
+                          style={{
+                            fontSize: 14,
+                            fontWeight: 700,
+                            opacity: 0.75,
+                          }}
+                        >
+                          {sameResortCopy(overall)}
+                        </div>
+
+                        {/* Why rows (optional) */}
+                        {whyBullets.length ? (
+                          <div
+                            style={{
+                              display: "flex",
+                              flexDirection: "column",
+                              gap: 6,
+                              marginTop: 2,
+                            }}
+                          >
+                            {whyBullets.slice(0, 3).map(renderWhyRow)}
+                          </div>
+                        ) : null}
+
+                        {/* Backup (single line) */}
+                        {decision.backup ? (
+                          <div
+                            style={{
+                              marginTop: 2,
+                              fontSize: 12,
+                              opacity: 0.75,
+                            }}
+                          >
+                            Backup:{" "}
+                            <strong style={{ opacity: 0.95 }}>
+                              {decision.backup.resortName}
+                            </strong>
+                            {decision.backup.reason ? (
+                              <span style={{ opacity: 0.85 }}>
+                                {" "}
+                                — {decision.backup.reason}
+                              </span>
+                            ) : null}
+                          </div>
+                        ) : null}
+
+                        {/* CTA Row: icon buttons */}
+                        <div
+                          style={{
+                            display: "flex",
+                            gap: 10,
+                            marginTop: 4,
+                            justifyContent: "flex-end",
+                          }}
+                        >
+                          <IonButton
+                            fill="outline"
+                            size="small"
+                            aria-label="Directions"
+                            title="Directions"
+                          >
+                            <IonIcon icon={navigateOutline} aria-hidden="true" />
+                          </IonButton>
+
+                          <IonButton
+                            fill="outline"
+                            size="small"
+                            aria-label="Share plan"
+                            title="Share plan"
+                          >
+                            <IonIcon icon={shareOutline} aria-hidden="true" />
+                          </IonButton>
+
+                          <IonButton
+                            fill="outline"
+                            size="small"
+                            aria-label="Refresh data"
+                            title="Refresh data"
+                            onClick={refreshSnow}
+                          >
+                            <IonIcon icon={refreshOutline} aria-hidden="true" />
+                          </IonButton>
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   {/* Timeline strip (v0) */}
                   <div
