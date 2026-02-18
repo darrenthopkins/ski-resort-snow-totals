@@ -538,7 +538,7 @@ export default function Snow() {
                     const whyBullets =
                       (selectedDay?.bullets?.length
                         ? selectedDay.bullets
-                        : decision.why ?? []) ?? [];
+                        : (decision.why ?? [])) ?? [];
 
                     // Friendly formatting for known bullet types (no planner changes)
                     function renderWhyRow(b: string, i: number) {
@@ -572,7 +572,10 @@ export default function Snow() {
                       }
 
                       // Weather-ish line: anything containing °F
-                      if (text.includes("°F") || text.toLowerCase().includes("wind")) {
+                      if (
+                        text.includes("°F") ||
+                        text.toLowerCase().includes("wind")
+                      ) {
                         return (
                           <div
                             key={i}
@@ -779,7 +782,10 @@ export default function Snow() {
                             aria-label="Directions"
                             title="Directions"
                           >
-                            <IonIcon icon={navigateOutline} aria-hidden="true" />
+                            <IonIcon
+                              icon={navigateOutline}
+                              aria-hidden="true"
+                            />
                           </IonButton>
 
                           <IonButton
@@ -818,6 +824,34 @@ export default function Snow() {
                     {weekVM.days.map((d) => {
                       const isSelected = d.dateISO === selectedDay?.dateISO;
                       const c = labelColors(d.label);
+
+                      // 1) Date should be 2/17 (numeric month/day)
+                      const md = (() => {
+                        try {
+                          return new Date(
+                            d.dateISO + "T00:00:00",
+                          ).toLocaleDateString(undefined, {
+                            month: "numeric",
+                            day: "numeric",
+                          });
+                        } catch {
+                          return d.dateISO;
+                        }
+                      })();
+
+                      // 2) Tag should be GO/WAIT/SKIP (semantic), not the color text
+                      const labelText =
+                        d.label === "green"
+                          ? "GO"
+                          : d.label === "yellow"
+                            ? "WAIT"
+                            : "SKIP";
+
+                      // (Optional, non-breaking) show a subtle warning if score/pick is missing
+                      const scoreMissing = !Number.isFinite(d.topPick?.score);
+                      const resortMissing = !d.topPick?.resortName;
+                      const lowConfidence = scoreMissing || resortMissing;
+
                       return (
                         <button
                           key={d.dateISO}
@@ -833,8 +867,15 @@ export default function Snow() {
                               : "transparent",
                             padding: 10,
                             minWidth: 140,
+                            opacity: lowConfidence ? 0.9 : 1,
                           }}
-                          title={`${d.dateISO} • ${d.topPick.resortName} • ${d.topPick.score}`}
+                          title={[
+                            d.dateISO,
+                            d.topPick?.resortName ?? "(missing resort)",
+                            Number.isFinite(d.topPick?.score)
+                              ? `score ${d.topPick.score}`
+                              : "(missing score)",
+                          ].join(" • ")}
                           aria-label={`Select ${d.dateISO}`}
                         >
                           <div
@@ -849,13 +890,50 @@ export default function Snow() {
                                 display: "flex",
                                 justifyContent: "space-between",
                                 gap: 10,
+                                alignItems: "center",
                               }}
                             >
                               <div style={{ fontSize: 12, opacity: 0.9 }}>
                                 {dayOfWeekShort(d.dateISO)}
                               </div>
-                              <div style={{ fontSize: 12, opacity: 0.8 }}>
-                                {d.dateISO}
+
+                              <div
+                                style={{
+                                  display: "flex",
+                                  gap: 8,
+                                  alignItems: "center",
+                                }}
+                              >
+                                {lowConfidence ? (
+                                  <span
+                                    style={{
+                                      fontSize: 12,
+                                      opacity: 0.8,
+                                      padding: "2px 6px",
+                                      borderRadius: 999,
+                                      border: "1px solid #ffffff22",
+                                      background: "#ffffff08",
+                                    }}
+                                    title={`Missing: ${
+                                      [
+                                        resortMissing ? "resort" : null,
+                                        scoreMissing ? "score" : null,
+                                      ]
+                                        .filter(Boolean)
+                                        .join(", ") || "inputs"
+                                    }`}
+                                    aria-label="Low confidence"
+                                  >
+                                    ⚠
+                                  </span>
+                                ) : (
+                                  // reserve space so height doesn't shift
+                                  <span style={{ width: 22 }} />
+                                )}
+
+                                <div style={{ fontSize: 12, opacity: 0.8 }}>
+                                  {md}
+                                </div>
                               </div>
                             </div>
 
@@ -872,7 +950,7 @@ export default function Snow() {
                                 letterSpacing: 0.3,
                               }}
                             >
-                              {d.label.toUpperCase()}
+                              {labelText}
                             </div>
 
                             <div
@@ -885,17 +963,20 @@ export default function Snow() {
                               <div
                                 style={{ fontWeight: 700, lineHeight: 1.15 }}
                               >
-                                {d.topPick.resortName}
+                                {d.topPick?.resortName ?? "—"}
                               </div>
+
                               <div style={{ fontSize: 12, opacity: 0.85 }}>
                                 Score:{" "}
                                 <span style={{ fontWeight: 700 }}>
-                                  {d.topPick.score}
+                                  {Number.isFinite(d.topPick?.score)
+                                    ? d.topPick.score
+                                    : "—"}
                                 </span>
                               </div>
                             </div>
 
-                            {d.runnersUp.length > 0 && (
+                            {d.runnersUp?.length > 0 && (
                               <div style={{ fontSize: 12, opacity: 0.75 }}>
                                 Next:{" "}
                                 {d.runnersUp
@@ -909,66 +990,207 @@ export default function Snow() {
                     })}
                   </div>
 
-                  {/* Selected day details */}
+                  {/* GPT_REGION:WEEK_SUMMARY:START */}
                   {selectedDay && (
                     <div
                       style={{
-                        marginTop: 6,
+                        marginTop: 8,
+                        paddingTop: 10,
+                        borderTop: "1px solid #ffffff1a",
                         display: "flex",
                         flexDirection: "column",
-                        gap: 6,
+                        gap: 10,
                       }}
                     >
-                      <div style={{ fontWeight: 800 }}>
-                        {dayOfWeekShort(selectedDay.dateISO)}{" "}
-                        {selectedDay.dateISO} —{" "}
-                        {selectedDay.label.toUpperCase()} (
-                        {selectedDay.topPick.score})
-                      </div>
+                      {(() => {
+                        const labelText =
+                          selectedDay.label === "green"
+                            ? "GO"
+                            : selectedDay.label === "yellow"
+                              ? "WAIT"
+                              : "SKIP";
 
-                      <div>
-                        <strong>Top pick:</strong>{" "}
-                        {selectedDay.topPick.resortName}
-                      </div>
+                        const md = (() => {
+                          try {
+                            return new Date(
+                              selectedDay.dateISO + "T00:00:00",
+                            ).toLocaleDateString(undefined, {
+                              month: "numeric",
+                              day: "numeric",
+                            });
+                          } catch {
+                            return selectedDay.dateISO;
+                          }
+                        })();
 
-                      {selectedDay.runnersUp.length > 0 && (
-                        <div
-                          style={{
-                            display: "flex",
-                            flexDirection: "column",
-                            gap: 2,
-                          }}
-                        >
-                          <strong>Runners up:</strong>
-                          <div style={{ opacity: 0.9 }}>
-                            {selectedDay.runnersUp.map((r) => (
-                              <div key={r.resortId}>
-                                • {r.resortName} — {r.label.toUpperCase()} (
-                                {r.score})
+                        const score = selectedDay.topPick?.score;
+                        const scoreText = Number.isFinite(score)
+                          ? String(score)
+                          : "—";
+
+                        return (
+                          <>
+                            {/* Header */}
+                            <div
+                              style={{
+                                display: "flex",
+                                justifyContent: "space-between",
+                                alignItems: "baseline",
+                                gap: 12,
+                                flexWrap: "wrap",
+                              }}
+                            >
+                              <div style={{ fontWeight: 900, fontSize: 16 }}>
+                                {dayOfWeekShort(selectedDay.dateISO)} · {md}
                               </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
 
-                      {selectedDay.bullets.length > 0 && (
-                        <div
-                          style={{
-                            display: "flex",
-                            flexDirection: "column",
-                            gap: 2,
-                          }}
-                        >
-                          <strong>Why:</strong>
-                          <div style={{ opacity: 0.9 }}>
-                            {selectedDay.bullets.map((b, i) => (
-                              <div key={i}>• {b}</div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
+                              <div
+                                style={{
+                                  display: "flex",
+                                  gap: 10,
+                                  alignItems: "center",
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    padding: "4px 10px",
+                                    borderRadius: 999,
+                                    border: "1px solid #ffffff22",
+                                    background: "#ffffff08",
+                                    fontWeight: 900,
+                                    fontSize: 12,
+                                    letterSpacing: 0.3,
+                                  }}
+                                  title={labelText}
+                                >
+                                  {labelText}
+                                </div>
+
+                                <div style={{ opacity: 0.85, fontSize: 12 }}>
+                                  Score:{" "}
+                                  <span style={{ fontWeight: 900 }}>
+                                    {scoreText}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Top pick */}
+                            <div
+                              style={{
+                                display: "flex",
+                                flexDirection: "column",
+                                gap: 4,
+                              }}
+                            >
+                              <div style={{ fontSize: 12, opacity: 0.75 }}>
+                                Top pick
+                              </div>
+                              <div
+                                style={{
+                                  fontWeight: 900,
+                                  fontSize: 16,
+                                  lineHeight: 1.15,
+                                }}
+                              >
+                                {selectedDay.topPick?.resortName ?? "—"}
+                              </div>
+                            </div>
+
+                            {/* Runners up */}
+                            <div
+                              style={{
+                                display: "flex",
+                                flexDirection: "column",
+                                gap: 6,
+                              }}
+                            >
+                              <div style={{ fontSize: 12, opacity: 0.75 }}>
+                                Runners up
+                              </div>
+
+                              {selectedDay.runnersUp.length > 0 ? (
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    flexDirection: "column",
+                                    gap: 4,
+                                  }}
+                                >
+                                  {selectedDay.runnersUp
+                                    .slice(0, 3)
+                                    .map((r) => (
+                                      <div
+                                        key={r.resortId}
+                                        style={{
+                                          display: "flex",
+                                          justifyContent: "space-between",
+                                          gap: 10,
+                                          opacity: 0.92,
+                                        }}
+                                      >
+                                        <span style={{ fontWeight: 800 }}>
+                                          {r.resortName}
+                                        </span>
+                                        <span
+                                          style={{
+                                            fontVariantNumeric: "tabular-nums",
+                                            fontWeight: 900,
+                                            opacity: 0.85,
+                                            whiteSpace: "nowrap",
+                                          }}
+                                          title="Runner-up score"
+                                        >
+                                          {Number.isFinite(r.score)
+                                            ? r.score
+                                            : "—"}
+                                        </span>
+                                      </div>
+                                    ))}
+                                </div>
+                              ) : (
+                                <div style={{ opacity: 0.6 }}>—</div>
+                              )}
+                            </div>
+
+                            {/* Why */}
+                            <div
+                              style={{
+                                display: "flex",
+                                flexDirection: "column",
+                                gap: 6,
+                              }}
+                            >
+                              <div style={{ fontSize: 12, opacity: 0.75 }}>
+                                Why
+                              </div>
+
+                              {selectedDay.bullets.length > 0 ? (
+                                <ul
+                                  style={{
+                                    margin: 0,
+                                    paddingLeft: 18,
+                                    opacity: 0.92,
+                                  }}
+                                >
+                                  {selectedDay.bullets
+                                    .slice(0, 4)
+                                    .map((b, i) => (
+                                      <li key={i} style={{ marginBottom: 4 }}>
+                                        {b}
+                                      </li>
+                                    ))}
+                                </ul>
+                              ) : (
+                                <div style={{ opacity: 0.6 }}>—</div>
+                              )}
+                            </div>
+                          </>
+                        );
+                      })()}
                     </div>
                   )}
+                  {/* GPT_REGION:WEEK_SUMMARY:END */}
                 </div>
               </IonLabel>
             </IonItem>
