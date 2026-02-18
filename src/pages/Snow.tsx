@@ -166,11 +166,14 @@ export default function Snow() {
   function refreshSnow() {
     try {
       localStorage.removeItem("srs_snow_cache_v1");
+      localStorage.removeItem("srs_geo_last_v1");
+      localStorage.removeItem("srs_geo_err_v1");
     } catch {
       // ignore
     }
     window.location.reload();
   }
+
   const resortsWithMiles = useMemo(() => {
     if (geo.status !== "ready") {
       return RESORTS.map((r) => ({ resort: r, miles: null as number | null }));
