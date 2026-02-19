@@ -548,11 +548,20 @@ export default function Snow() {
                       const text = String(b ?? "");
 
                       // Snow signal line: replace confusing suffix
+                      // Snow window line (icon-only, no "Snow signal" text)
                       if (text.toLowerCase().startsWith("snow signal:")) {
-                        const friendly = text.replace(
-                          /\(last24\+next24 proxy\)/gi,
-                          "(last 24 hrs → next 24 hrs)",
-                        );
+                        // Extract numeric portion (e.g. "8\"")
+                        const match = text.match(/(\d+(\.\d+)?")/);
+                        const snowValue = match ? match[1] : "";
+
+                        // Build friendly window label using heroDateISO
+                        const winStartISO = heroDateISO;
+                        const winEndISO = addDaysISO(heroDateISO, 1);
+
+                        const winLabel = `${dayOfWeekShort(winStartISO)} → ${dayOfWeekShort(
+                          winEndISO,
+                        )}`;
+
                         return (
                           <div
                             key={i}
@@ -561,15 +570,20 @@ export default function Snow() {
                               alignItems: "center",
                               gap: 10,
                               fontSize: 14,
-                              opacity: 0.92,
+                              opacity: 0.95,
                             }}
                           >
                             <IonIcon
                               icon={snowOutline}
-                              style={{ fontSize: 18, opacity: 0.85 }}
+                              style={{ fontSize: 18, opacity: 0.9 }}
                               aria-hidden="true"
                             />
-                            <span>{friendly}</span>
+
+                            <span style={{ fontWeight: 800 }}>
+                              {snowValue || "—"}
+                            </span>
+
+                            <span style={{ opacity: 0.75 }}>{winLabel}</span>
                           </div>
                         );
                       }
@@ -813,7 +827,6 @@ export default function Snow() {
                       </div>
                     );
                   })()}
-
                   {/* Timeline strip (v0) */}
                   <div
                     style={{
@@ -992,7 +1005,6 @@ export default function Snow() {
                       );
                     })}
                   </div>
-
                   {/* GPT_REGION:WEEK_SUMMARY:START */}
                   {selectedDay && (
                     <div
@@ -1194,6 +1206,99 @@ export default function Snow() {
                     </div>
                   )}
                   {/* GPT_REGION:WEEK_SUMMARY:END */}
+                  {import.meta.env.DEV && (
+                    <div
+                      style={{
+                        marginTop: 10,
+                        padding: "10px 12px",
+                        borderRadius: 12,
+                        border: "1px solid #ffffff22",
+                        background: "#ffffff08",
+                        fontSize: 12,
+                        opacity: 0.92,
+                      }}
+                    >
+                      <div style={{ fontWeight: 900, marginBottom: 6 }}>
+                        DEV: Data status
+                      </div>
+
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "140px 1fr",
+                          gap: 6,
+                        }}
+                      >
+                        <div style={{ opacity: 0.75 }}>Selected day</div>
+                        <div
+                          style={{
+                            fontFamily:
+                              "ui-monospace, SFMono-Regular, Menlo, monospace",
+                          }}
+                        >
+                          {selectedDay?.dateISO ?? "—"}
+                        </div>
+
+                        <div style={{ opacity: 0.75 }}>Geo</div>
+                        <div
+                          style={{
+                            fontFamily:
+                              "ui-monospace, SFMono-Regular, Menlo, monospace",
+                          }}
+                        >
+                          {(() => {
+                            const g: any = geo as any; // geo is in your component state already
+                            if (!g) return "—";
+                            if (g.status === "ready")
+                              return `${g.lat.toFixed(5)}, ${g.lon.toFixed(5)}`;
+                            return g.status ?? "—";
+                          })()}
+                        </div>
+
+                        <div style={{ opacity: 0.75 }}>Snow cache</div>
+                        <div
+                          style={{
+                            fontFamily:
+                              "ui-monospace, SFMono-Regular, Menlo, monospace",
+                          }}
+                        >
+                          {(() => {
+                            try {
+                              const raw =
+                                localStorage.getItem("srs_snow_cache_v1");
+                              if (!raw) return "empty";
+                              return `present (${raw.length} chars)`;
+                            } catch {
+                              return "unavailable";
+                            }
+                          })()}
+                        </div>
+
+                        <div style={{ opacity: 0.75 }}>Top pick</div>
+                        <div
+                          style={{
+                            fontFamily:
+                              "ui-monospace, SFMono-Regular, Menlo, monospace",
+                          }}
+                        >
+                          {selectedDay?.topPick?.resortName ?? "—"}{" "}
+                          {Number.isFinite(selectedDay?.topPick?.score)
+                            ? `(${selectedDay!.topPick.score})`
+                            : ""}
+                        </div>
+
+                        <div style={{ opacity: 0.75 }}>Label</div>
+                        <div
+                          style={{
+                            fontFamily:
+                              "ui-monospace, SFMono-Regular, Menlo, monospace",
+                          }}
+                        >
+                          {selectedDay?.label ?? "—"}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </IonLabel>
             </IonItem>
