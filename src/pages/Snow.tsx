@@ -877,7 +877,8 @@ export default function Snow() {
                             cursor: "pointer",
                             flex: "0 0 auto",
                             borderRadius: 14,
-                            border: `1px solid ${isSelected ? "#ffffff55" : "#ffffff22"}`,
+                            border: `2px solid ${isSelected ? "#3BA9FF" : "transparent"}`,
+                            boxShadow: `0 0 0 1px ${isSelected ? "#3BA9FF" : "#ffffff22"}`,
                             background: isSelected
                               ? "#ffffff10"
                               : "transparent",
@@ -1014,7 +1015,7 @@ export default function Snow() {
                         borderTop: "1px solid #ffffff1a",
                         display: "flex",
                         flexDirection: "column",
-                        gap: 10,
+                        gap: 12,
                       }}
                     >
                       {(() => {
@@ -1038,14 +1039,110 @@ export default function Snow() {
                           }
                         })();
 
-                        const score = selectedDay.topPick?.score;
-                        const scoreText = Number.isFinite(score)
-                          ? String(score)
-                          : "—";
+                        const winStartISO = selectedDay.dateISO;
+                        const winEndISO = addDaysISO(selectedDay.dateISO, 1);
+                        const winLabel = `${dayOfWeekShort(winStartISO)} → ${dayOfWeekShort(winEndISO)}`;
+
+                        // Helpers: normalize "Snow signal" text inside Why
+                        const renderWhyLine = (
+                          b: string,
+                          key: string | number,
+                        ) => {
+                          const lower = b.toLowerCase();
+
+                          if (lower.startsWith("snow signal:")) {
+                            // Try to extract value like 8"
+                            const m = b.match(/(\d+(\.\d+)?")/);
+                            const snowValue = m ? m[1] : "—";
+                            return (
+                              <div
+                                key={key}
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 8,
+                                }}
+                              >
+                                <IonIcon
+                                  icon={snowOutline}
+                                  aria-hidden="true"
+                                  style={{ fontSize: 16, opacity: 0.9 }}
+                                />
+                                <span style={{ fontWeight: 900 }}>
+                                  {snowValue}
+                                </span>
+                                <span style={{ opacity: 0.75 }}>
+                                  {winLabel}
+                                </span>
+                              </div>
+                            );
+                          }
+
+                          // Replace any lingering proxy wording
+                          const friendly = b.replace(
+                            /\(last24\+next24 proxy\)/gi,
+                            `(${winLabel})`,
+                          );
+
+                          return (
+                            <div key={key} style={{ opacity: 0.92 }}>
+                              • {friendly}
+                            </div>
+                          );
+                        };
+
+                        // “Why” sources:
+                        // - We definitely have selectedDay.bullets (day-level). Runner-ups may not have their own bullets.
+                        // - If runner-ups have bullets, we’ll show them; else show day-level bullets as fallback but label it.
+                        const dayWhy = selectedDay.bullets ?? [];
+
+                        const podium = [
+                          {
+                            medal: "🥇",
+                            aria: "Gold",
+                            name: selectedDay.topPick?.resortName,
+                            score: selectedDay.topPick?.score,
+                            why: dayWhy, // day-level why
+                          },
+                          {
+                            medal: "🥈",
+                            aria: "Silver",
+                            name: selectedDay.runnersUp?.[0]?.resortName,
+                            score: selectedDay.runnersUp?.[0]?.score,
+                            why:
+                              (selectedDay.runnersUp?.[0] as any)?.bullets ??
+                              dayWhy,
+                          },
+                          {
+                            medal: "🥉",
+                            aria: "Bronze",
+                            name: selectedDay.runnersUp?.[1]?.resortName,
+                            score: selectedDay.runnersUp?.[1]?.score,
+                            why:
+                              (selectedDay.runnersUp?.[1] as any)?.bullets ??
+                              dayWhy,
+                          },
+                        ];
+
+                        const pill = (text: string) => (
+                          <span
+                            style={{
+                              padding: "4px 10px",
+                              borderRadius: 999,
+                              border: "1px solid #ffffff22",
+                              background: "#ffffff08",
+                              fontWeight: 900,
+                              fontSize: 12,
+                              letterSpacing: 0.3,
+                            }}
+                          >
+                            {text}
+                          </span>
+                        );
 
                         return (
                           <>
-                            {/* Header */}
+                            {/* Header: selected day */}
                             <div
                               style={{
                                 display: "flex",
@@ -1066,145 +1163,125 @@ export default function Snow() {
                                   alignItems: "center",
                                 }}
                               >
-                                <div
-                                  style={{
-                                    padding: "4px 10px",
-                                    borderRadius: 999,
-                                    border: "1px solid #ffffff22",
-                                    background: "#ffffff08",
-                                    fontWeight: 900,
-                                    fontSize: 12,
-                                    letterSpacing: 0.3,
-                                  }}
-                                  title={labelText}
-                                >
-                                  {labelText}
-                                </div>
-
-                                <div style={{ opacity: 0.85, fontSize: 12 }}>
+                                {pill(labelText)}
+                                <div style={{ opacity: 0.9, fontSize: 12 }}>
                                   Score:{" "}
-                                  <span style={{ fontWeight: 900 }}>
-                                    {scoreText}
+                                  <span
+                                    style={{
+                                      fontWeight: 900,
+                                      fontVariantNumeric: "tabular-nums",
+                                    }}
+                                  >
+                                    {Number.isFinite(selectedDay.topPick?.score)
+                                      ? selectedDay.topPick.score
+                                      : "—"}
                                   </span>
                                 </div>
                               </div>
                             </div>
 
-                            {/* Top pick */}
+                            {/* Podium row (responsive wrap) */}
                             <div
                               style={{
                                 display: "flex",
-                                flexDirection: "column",
-                                gap: 4,
+                                gap: 10,
+                                flexWrap: "wrap",
                               }}
                             >
-                              <div style={{ fontSize: 12, opacity: 0.75 }}>
-                                Top pick
-                              </div>
-                              <div
-                                style={{
-                                  fontWeight: 900,
-                                  fontSize: 16,
-                                  lineHeight: 1.15,
-                                }}
-                              >
-                                {selectedDay.topPick?.resortName ?? "—"}
-                              </div>
-                            </div>
-
-                            {/* Runners up */}
-                            <div
-                              style={{
-                                display: "flex",
-                                flexDirection: "column",
-                                gap: 6,
-                              }}
-                            >
-                              <div style={{ fontSize: 12, opacity: 0.75 }}>
-                                Runners up
-                              </div>
-
-                              {selectedDay.runnersUp.length > 0 ? (
+                              {podium.map((p, idx) => (
                                 <div
+                                  key={idx}
                                   style={{
+                                    flex: "1 1 220px",
+                                    minWidth: 220,
+                                    borderRadius: 14,
+                                    border: "1px solid #ffffff22",
+                                    background: "#ffffff08",
+                                    padding: "10px 10px",
                                     display: "flex",
                                     flexDirection: "column",
-                                    gap: 4,
+                                    gap: 8,
                                   }}
                                 >
-                                  {selectedDay.runnersUp
-                                    .slice(0, 3)
-                                    .map((r) => (
-                                      <div
-                                        key={r.resortId}
-                                        style={{
-                                          display: "flex",
-                                          justifyContent: "space-between",
-                                          gap: 10,
-                                          opacity: 0.92,
-                                        }}
+                                  <div
+                                    style={{
+                                      display: "flex",
+                                      justifyContent: "space-between",
+                                      alignItems: "baseline",
+                                    }}
+                                  >
+                                    <div
+                                      style={{
+                                        display: "flex",
+                                        gap: 8,
+                                        alignItems: "center",
+                                      }}
+                                    >
+                                      <span
+                                        aria-label={p.aria}
+                                        title={p.aria}
+                                        style={{ fontSize: 18 }}
                                       >
-                                        <span style={{ fontWeight: 800 }}>
-                                          {r.resortName}
-                                        </span>
-                                        <span
-                                          style={{
-                                            fontVariantNumeric: "tabular-nums",
-                                            fontWeight: 900,
-                                            opacity: 0.85,
-                                            whiteSpace: "nowrap",
-                                          }}
-                                          title="Runner-up score"
-                                        >
-                                          {Number.isFinite(r.score)
-                                            ? r.score
-                                            : "—"}
-                                        </span>
+                                        {p.medal}
+                                      </span>
+                                      <div
+                                        style={{
+                                          fontWeight: 900,
+                                          fontSize: 15,
+                                          lineHeight: 1.1,
+                                          whiteSpace: "nowrap",
+                                          overflow: "hidden",
+                                          textOverflow: "ellipsis",
+                                          maxWidth: 160,
+                                        }}
+                                        title={p.name ?? ""}
+                                      >
+                                        {p.name ?? "—"}
                                       </div>
-                                    ))}
+                                    </div>
+
+                                    <div
+                                      style={{
+                                        fontWeight: 900,
+                                        fontVariantNumeric: "tabular-nums",
+                                        opacity: 0.9,
+                                      }}
+                                    >
+                                      {Number.isFinite(p.score) ? p.score : "—"}
+                                    </div>
+                                  </div>
+
+                                  <div style={{ fontSize: 12, opacity: 0.75 }}>
+                                    Why
+                                  </div>
+
+                                  <div
+                                    style={{
+                                      display: "flex",
+                                      flexDirection: "column",
+                                      gap: 4,
+                                      fontSize: 13,
+                                    }}
+                                  >
+                                    {Array.isArray(p.why) && p.why.length ? (
+                                      p.why
+                                        .slice(0, 3)
+                                        .map((b: string, i: number) =>
+                                          renderWhyLine(b, `${idx}-${i}`),
+                                        )
+                                    ) : (
+                                      <div style={{ opacity: 0.6 }}>—</div>
+                                    )}
+                                  </div>
                                 </div>
-                              ) : (
-                                <div style={{ opacity: 0.6 }}>—</div>
-                              )}
-                            </div>
-
-                            {/* Why */}
-                            <div
-                              style={{
-                                display: "flex",
-                                flexDirection: "column",
-                                gap: 6,
-                              }}
-                            >
-                              <div style={{ fontSize: 12, opacity: 0.75 }}>
-                                Why
-                              </div>
-
-                              {selectedDay.bullets.length > 0 ? (
-                                <ul
-                                  style={{
-                                    margin: 0,
-                                    paddingLeft: 18,
-                                    opacity: 0.92,
-                                  }}
-                                >
-                                  {selectedDay.bullets
-                                    .slice(0, 4)
-                                    .map((b, i) => (
-                                      <li key={i} style={{ marginBottom: 4 }}>
-                                        {b}
-                                      </li>
-                                    ))}
-                                </ul>
-                              ) : (
-                                <div style={{ opacity: 0.6 }}>—</div>
-                              )}
+                              ))}
                             </div>
                           </>
                         );
                       })()}
                     </div>
                   )}
+
                   {/* GPT_REGION:WEEK_SUMMARY:END */}
                   {import.meta.env.DEV && (
                     <div
@@ -1387,9 +1464,31 @@ export default function Snow() {
                   next24In: null,
                   updatedAt: "—",
                 };
-                if (resort.id === "ragged") {
-                  console.log("[ui] ragged snow object", snow);
-                }
+
+                const updatedRaw =
+                  snow.last48Meta?.updatedAt ??
+                  snow.next24Meta?.updatedAt ??
+                  null;
+
+                const updatedPretty = (() => {
+                  if (!updatedRaw) return "—";
+                  try {
+                    // shortTimeStamp is already used above in the hero provenance line
+                    return shortTimeStamp(updatedRaw);
+                  } catch {
+                    return String(updatedRaw);
+                  }
+                })();
+
+                const last48Warn = (() => {
+                  const ind = getIndicator(snow.last48Meta, snow.last48In);
+                  return ind?.kind === "warn";
+                })();
+
+                const next24Warn = (() => {
+                  const ind = getIndicator(snow.next24Meta, snow.next24In);
+                  return ind?.kind === "warn";
+                })();
 
                 return (
                   <IonItem key={resort.id}>
@@ -1403,52 +1502,40 @@ export default function Snow() {
                             </IonNote>
                           ) : null}
                         </span>
+
                         <span className="colNum">
-                          {fmtInches(snow.last48In)}
-                          {(() => {
-                            const ind = getIndicator(
-                              snow.last48Meta,
-                              snow.last48In,
-                            );
-                            if (!ind) return null;
-                            return (
-                              <span
-                                title={metricTooltip(
-                                  "Last 48h",
-                                  snow.last48Meta,
-                                )}
-                              >
-                                {ind.kind === "warn" ? " (!)" : " (i)"}
-                              </span>
-                            );
-                          })()}
+                          <span className="numVal">
+                            {fmtInches(snow.last48In)}
+                          </span>
+                          {last48Warn ? (
+                            <span
+                              className="warnMark"
+                              title={metricTooltip("Last 48h", snow.last48Meta)}
+                              aria-label="Missing last 48 hours input"
+                            >
+                              {" "}
+                              (!)
+                            </span>
+                          ) : null}
                         </span>
 
                         <span className="colNum">
-                          {fmtInches(snow.next24In)}
-                          {(() => {
-                            const ind = getIndicator(
-                              snow.next24Meta,
-                              snow.next24In,
-                            );
-                            if (!ind) return null;
-                            return (
-                              <span
-                                title={metricTooltip(
-                                  "Next 24h",
-                                  snow.next24Meta,
-                                )}
-                              >
-                                {ind.kind === "warn" ? " (!)" : " (i)"}
-                              </span>
-                            );
-                          })()}
+                          <span className="numVal">
+                            {fmtInches(snow.next24In)}
+                          </span>
+                          {next24Warn ? (
+                            <span
+                              className="warnMark"
+                              title={metricTooltip("Next 24h", snow.next24Meta)}
+                              aria-label="Missing next 24 hours input"
+                            >
+                              {" "}
+                              (!)
+                            </span>
+                          ) : null}
                         </span>
-                        <IonNote className="colUpdated" slot="end">
-                          {snow.last48Meta?.updatedAt ??
-                            snow.next24Meta?.updatedAt ??
-                            "—"}
-                        </IonNote>
+
+                        <span className="colUpdated">{updatedPretty}</span>
                       </div>
                     </IonLabel>
                   </IonItem>

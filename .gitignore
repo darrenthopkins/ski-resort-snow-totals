@@ -74,3 +74,8 @@ vendor/
 # GPT script backups
 *.bak.*
 
+# CocoaPods / iOS workspace artifacts (keep out of feature branches)
+ios/App/Pods/
+ios/App/App.xcworkspace/
+ios/App/Podfile
+
