@@ -59,12 +59,14 @@ export function snowMetricsToCandidates(params: {
               : 0;
 
     // Defaults (until we add base/temp/wind sources):
+    const w = m?.weekWeatherDaily?.find((x) => x.dateISO === dateISO) ?? null;
+
     const facts: DayFacts = {
       newSnowInches,
       baseDepthInches: 30, // neutral-ish "solid base" default
-      minTempF: m?.minTempF ?? 18,
-      maxTempF: m?.maxTempF ?? 34,
-      maxWindMph: m?.maxWindMph ?? 15,
+      minTempF: w?.minTempF ?? m?.minTempF ?? 18,
+      maxTempF: w?.maxTempF ?? m?.maxTempF ?? 34,
+      maxWindMph: w?.maxWindMph ?? m?.maxWindMph ?? 15,
       isWeekend,
       driveMiles: driveMilesByResortId?.[r.id],
     };

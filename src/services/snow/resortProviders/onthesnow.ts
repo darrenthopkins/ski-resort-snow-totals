@@ -35,10 +35,20 @@ function toInches(x: any): number | null {
   if (typeof x === "number" && Number.isFinite(x)) return x;
   if (typeof x !== "string") return null;
 
-  const m = x.match(/(\d+(?:\.\d+)?)/);
+  const s = x.trim().toLowerCase();
+  const m = s.match(/(\d+(?:\.\d+)?)/);
   if (!m) return null;
   const v = Number(m[1]);
-  return Number.isFinite(v) ? v : null;
+  if (!Number.isFinite(v)) return null;
+
+  // Unit-aware parsing:
+  // If OnTheSnow emits metric units (cm/mm), convert to inches.
+  // Examples: "5.08 cm" (== 2 in), "12.9 cm", "129 mm"
+  if (/\bmm\b/.test(s)) return v / 25.4;
+  if (/\bcm\b/.test(s)) return (v * 10) / 25.4;
+  if (/\bm\b/.test(s) && !/\bmp\b/.test(s)) return (v * 1000) / 25.4;
+
+  return v;
 }
 
 function tryLast48FromNode(node: any, path: string): number | null {

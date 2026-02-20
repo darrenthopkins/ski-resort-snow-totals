@@ -41,6 +41,14 @@ export type SnowMetrics = {
 
   weekSnowDaily?: Array<{ dateISO: string; inches: number | null }>;
   weekSnowMeta?: MetricMeta;
+
+  weekWeatherDaily?: Array<{
+    dateISO: string;
+    minTempF: number | null;
+    maxTempF: number | null;
+    maxWindMph: number | null;
+  }>;
+  weekWeatherMeta?: MetricMeta;
 };
 
 export type GetSnowOptions = {

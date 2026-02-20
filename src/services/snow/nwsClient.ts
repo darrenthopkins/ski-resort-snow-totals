@@ -326,3 +326,97 @@ export async function getNext24SnowInches(resort: Resort): Promise<{
     sourceUrl: gridUrl, // you can also include forecastUrl elsewhere if desired
   };
 }
+
+// ------------------------------------------------------------
+// Week weather bins (per-day) from NWS forecast periods
+// ------------------------------------------------------------
+
+type WeekWeatherDailyRow = {
+  dateISO: string;
+  minTempF: number | null;
+  maxTempF: number | null;
+  maxWindMph: number | null;
+};
+
+type WeekWeatherDailyResult = {
+  daily: WeekWeatherDailyRow[];
+  updatedAt: string;
+  sourceUrl: string;
+};
+
+export async function getWeekWeatherDaily(
+  resort: { id: string; name: string; lat?: number; lon?: number },
+  days: number,
+): Promise<WeekWeatherDailyResult | null> {
+  try {
+    // Use NWS /points to get forecast URL (keeps logic self-contained)
+    if (resort.lat == null || resort.lon == null) return null;
+
+    const pointsUrl = `https://api.weather.gov/points/${resort.lat},${resort.lon}`;
+    const pointsJson = await fetchNwsJson<NwsPointsResponse>(pointsUrl);
+
+    const forecastUrl = pointsJson?.properties?.forecast;
+    if (!forecastUrl) return null;
+
+    const forecastJson = await fetchNwsJson<NwsForecastResponse>(forecastUrl);
+    const periods = forecastJson?.properties?.periods;
+    if (!Array.isArray(periods) || periods.length === 0) return null;
+
+    const toISODateLocalFromStart = (startTime: string): string | null => {
+      const dt = new Date(startTime);
+      if (Number.isNaN(dt.getTime())) return null;
+      const y = dt.getFullYear();
+      const m = String(dt.getMonth() + 1).padStart(2, "0");
+      const d = String(dt.getDate()).padStart(2, "0");
+      return `${y}-${m}-${d}`;
+    };
+
+    const parseWindMaxMph = (windSpeed: any): number | null => {
+      if (typeof windSpeed === "number" && Number.isFinite(windSpeed))
+        return windSpeed;
+      if (typeof windSpeed !== "string") return null;
+
+      // "5 to 10 mph" / "10 mph" / "15 to 25 mph"
+      const nums = [...windSpeed.matchAll(/(\d+)/g)].map((m) => Number(m[1]));
+      const finite = nums.filter((n) => Number.isFinite(n));
+      if (finite.length === 0) return null;
+      return Math.max(...finite);
+    };
+
+    const byDate: Record<string, { temps: number[]; winds: number[] }> = {};
+
+    for (const p of periods) {
+      const dateISO = toISODateLocalFromStart(
+        String((p as any)?.startTime ?? ""),
+      );
+      if (!dateISO) continue;
+
+      const t = Number((p as any)?.temperature);
+      const w = parseWindMaxMph((p as any)?.windSpeed);
+
+      if (!byDate[dateISO]) byDate[dateISO] = { temps: [], winds: [] };
+      if (Number.isFinite(t)) byDate[dateISO].temps.push(t);
+      if (w != null && Number.isFinite(w)) byDate[dateISO].winds.push(w);
+    }
+
+    const dateISOs = Object.keys(byDate).sort().slice(0, days);
+
+    const daily: WeekWeatherDailyRow[] = dateISOs.map((dateISO) => {
+      const temps = byDate[dateISO]?.temps ?? [];
+      const winds = byDate[dateISO]?.winds ?? [];
+      return {
+        dateISO,
+        minTempF: temps.length ? Math.min(...temps) : null,
+        maxTempF: temps.length ? Math.max(...temps) : null,
+        maxWindMph: winds.length ? Math.max(...winds) : null,
+      };
+    });
+
+    const updatedAt =
+      (forecastJson as any)?.properties?.updated ?? new Date().toISOString();
+
+    return { daily, updatedAt, sourceUrl: forecastUrl };
+  } catch {
+    return null;
+  }
+}
