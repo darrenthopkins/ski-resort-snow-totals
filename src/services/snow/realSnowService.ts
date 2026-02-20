@@ -198,14 +198,15 @@ export class RealSnowService implements SnowService {
                 })
               : undefined,
           };
-          dvlog(
-            "[SRS metrics]",
-            r.id,
-            v.last48In,
-            v.last48Meta,
-            v.next24In,
-            v.next24Meta,
-          );
+          dvlog("[SRS updatedAt check]", r.id, {
+            nws_updatedAt_raw: (nws as any).updatedAt,
+            nws_updatedAt_safe: safeISO((nws as any).updatedAt),
+            last48_updatedAt_raw: last48?.updatedAt,
+            last48_updatedAt_safe: safeISO(last48?.updatedAt),
+            v_next24Meta_updatedAt: v.next24Meta?.updatedAt,
+            v_last48Meta_updatedAt: v.last48Meta?.updatedAt,
+          });
+
           if (week?.daily?.length) dvlog("[weekbins]", r.id, week.daily);
 
           memCache[r.id] = { at: Date.now(), v };

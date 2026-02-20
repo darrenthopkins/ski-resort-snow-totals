@@ -1,24 +1,45 @@
-export async function fetchTextViaProxy(url: string): Promise<string> {
-  const r = await fetch(`/api/fetch?url=${encodeURIComponent(url)}`);
+import { Capacitor } from "@capacitor/core";
 
-  // 🔎 TEMP DEBUG (safe, read-only)
-  const upstreamStatus = r.headers.get("x-proxy-upstream-status");
-  const finalUrl = r.headers.get("x-proxy-final-url");
-  const contentType = r.headers.get("x-proxy-content-type");
-  const redirectChain = r.headers.get("x-proxy-redirect-chain");
+// Put your real proxy host here (Cloudflare Worker / Render / whatever you’re using).
+// Must be https.
+const API_BASE_NATIVE = "https://YOUR_PROXY_HOSTNAME"; // TODO: set this
 
-  console.log("[fetchViaProxy]", {
-    requestedUrl: url,
-    httpStatus: r.status,
-    upstreamStatus,
-    finalUrl,
-    contentType,
-    redirectChain,
-  });
+function apiFetchUrl(targetUrl: string) {
+  const qs = `url=${encodeURIComponent(targetUrl)}`;
 
-  if (!r.ok) {
-    throw new Error(`fetchViaProxy failed: ${r.status}`);
+  // Native: must hit a real server; cannot hit capacitor://localhost
+  if (Capacitor.isNativePlatform()) {
+    return `${API_BASE_NATIVE}/api/fetch?${qs}`;
   }
 
-  return await r.text();
+  // Web: allow Vite proxy / same-origin
+  return `/api/fetch?${qs}`;
+}
+
+const WORKER_BASE = "https://sweet-waterfall-ccaa.darrenthopkins.workers.dev";
+
+export async function fetchTextViaProxy(url: string): Promise<string> {
+  const proxyUrl = Capacitor.isNativePlatform()
+    ? `${WORKER_BASE}/api/fetch?url=${encodeURIComponent(url)}`
+    : `/api/fetch?url=${encodeURIComponent(url)}`;
+
+  const r = await fetch(proxyUrl);
+
+  // ... keep your existing header debug logs ...
+
+  if (!r.ok) throw new Error(`fetchViaProxy failed: ${r.status}`);
+
+  const text = await r.text();
+
+  // guard: never silently accept app shell HTML
+  if (
+    /<title>\s*Ionic App\s*<\/title>/i.test(text) ||
+    /<base href=/i.test(text)
+  ) {
+    throw new Error(
+      `Proxy returned app shell HTML (wrong proxy). proxyUrl=${proxyUrl}`,
+    );
+  }
+
+  return text;
 }

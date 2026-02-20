@@ -1,4 +1,5 @@
 import type { Resort } from "../../data/resorts";
+import { Capacitor } from "@capacitor/core";
 
 type NwsPointsResponse = {
   properties: {
@@ -124,20 +125,25 @@ function overlapMillis(
   return Math.max(0, end - start);
 }
 
-function proxied(url: string): string {
-  return `/api/fetch?url=${encodeURIComponent(url)}`;
+const WORKER_BASE = "https://sweet-waterfall-ccaa.darrenthopkins.workers.dev";
+function proxied(url: string) {
+  return Capacitor.isNativePlatform()
+    ? `${WORKER_BASE}/api/fetch?url=${encodeURIComponent(url)}`
+    : `/api/fetch?url=${encodeURIComponent(url)}`;
 }
 
 async function fetchNwsJson<T>(url: string): Promise<T> {
   const resp = await fetch(proxied(url), {
     headers: { Accept: "application/geo+json" },
   });
+  console.log("[nws.fetch]", { url, proxied: proxied(url) });
   if (!resp.ok) {
     const body = await resp.text().catch(() => "");
     throw new Error(
       `NWS ${resp.status} ${resp.statusText} for ${url} :: ${body.slice(0, 200)}`,
     );
   }
+  console.log("[nws.fetch.resp]", { url, status: resp.status });
   return (await resp.json()) as T;
 }
 function fmtLocalDateISO(d: Date): string {
