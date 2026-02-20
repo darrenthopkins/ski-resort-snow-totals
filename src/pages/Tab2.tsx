@@ -13,16 +13,16 @@ const Tab2: React.FC = () => {
     <IonPage>
       <IonHeader>
         <IonToolbar>
-          <IonTitle>Ignore </IonTitle>
+          <IonTitle>Favorites</IonTitle>
         </IonToolbar>
       </IonHeader>
       <IonContent fullscreen>
         <IonHeader collapse="condense">
           <IonToolbar>
-            <IonTitle size="large">Ignore 2</IonTitle>
+            <IonTitle size="large">Favorites coming soon!</IonTitle>
           </IonToolbar>
         </IonHeader>
-        <ExploreContainer name="Ignore 2 page" />
+        <ExploreContainer name="Favorites coming soon!" />
       </IonContent>
     </IonPage>
   );

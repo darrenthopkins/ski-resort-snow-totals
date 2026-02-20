@@ -497,8 +497,6 @@ export default function Snow() {
                     const decision = weekVM.summary.decision;
 
                     // ✅ single-day hero: selected day topPick (fallback to decision pick)
-                    const primaryPick =
-                      selectedDay?.topPick ?? decision.picks?.[0] ?? null;
                     const heroDateISO =
                       selectedDay?.dateISO ?? decision.window?.startISO ?? null;
 
@@ -508,7 +506,16 @@ export default function Snow() {
                         ? `${decision.window.label} (${fmtMonthDay(decision.window.startISO)}–${fmtMonthDay(decision.window.endISO)})`
                         : "Best for —";
 
+                    const primaryPick =
+                      selectedDay?.topPick ??
+                      weekVM.summary.decision.picks?.[0] ??
+                      null;
                     const primaryResortId = primaryPick?.resortId ?? null;
+                    const heroMiles = primaryResortId
+                      ? (resortsWithMiles.find(
+                          (x) => x.resort.id === primaryResortId,
+                        )?.miles ?? null)
+                      : null;
 
                     const next24Updated =
                       (primaryResortId
@@ -539,9 +546,11 @@ export default function Snow() {
 
                     // Prefer selected-day bullets, fallback to model-wide why
                     const whyBullets =
-                      (selectedDay?.bullets?.length
-                        ? selectedDay.bullets
-                        : (decision.why ?? [])) ?? [];
+                      (selectedDay?.topPick?.bullets?.length
+                        ? selectedDay.topPick.bullets
+                        : selectedDay?.bullets?.length
+                          ? selectedDay.bullets
+                          : (decision.why ?? [])) ?? [];
 
                     // Friendly formatting for known bullet types (no planner changes)
                     function renderWhyRow(b: string, i: number) {

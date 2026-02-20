@@ -1,8 +1,12 @@
 import { getOnTheSnowLast48 } from "./resortProviders/onthesnow";
 import type { SnowMetrics, SnowService, GetSnowOptions } from "./types";
-import { getNext24SnowInches, getWeekSnowDaily } from "./nwsClient";
 import { MockSnowService } from "./mockSnowService";
 import type { MetricMeta, MetricStatus, SnowSource } from "./types";
+import {
+  getNext24SnowInches,
+  getWeekSnowDaily,
+  getWeekWeatherDaily,
+} from "./nwsClient";
 
 function meta(params: {
   source: SnowSource;
@@ -119,10 +123,11 @@ export class RealSnowService implements SnowService {
       const p = (async (): Promise<SnowMetrics> => {
         try {
           // Fetch in parallel
-          const [nws, last48, week] = await Promise.all([
+          const [nws, last48, week, weekWx] = await Promise.all([
             getNext24SnowInches(r),
             getOnTheSnowLast48(r).catch(() => null),
             getWeekSnowDaily(r, 7).catch(() => null),
+            getWeekWeatherDaily(r as any, 7).catch(() => null),
           ]);
 
           const v: SnowMetrics = {
@@ -132,6 +137,17 @@ export class RealSnowService implements SnowService {
             minTempF: nws.minTempF ?? null,
             maxTempF: nws.maxTempF ?? null,
             maxWindMph: nws.maxWindMph ?? null,
+
+            weekWeatherDaily: weekWx?.daily,
+            weekWeatherMeta: weekWx
+              ? meta({
+                  source: "nws",
+                  status: "derived",
+                  sourceUrl: weekWx.sourceUrl ?? "",
+                  updatedAt: safeISO(weekWx.updatedAt),
+                  provenance: { kind: "forecast_periods_daily_bins", days: 7 },
+                })
+              : undefined,
 
             last48Meta: meta({
               source: "onthesnow",
@@ -182,6 +198,14 @@ export class RealSnowService implements SnowService {
                 })
               : undefined,
           };
+          dvlog(
+            "[SRS metrics]",
+            r.id,
+            v.last48In,
+            v.last48Meta,
+            v.next24In,
+            v.next24Meta,
+          );
           if (week?.daily?.length) dvlog("[weekbins]", r.id, week.daily);
 
           memCache[r.id] = { at: Date.now(), v };

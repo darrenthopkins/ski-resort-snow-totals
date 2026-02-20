@@ -3,6 +3,15 @@ import type { DayFacts } from "./confidence";
 
 type Label = "green" | "yellow" | "red";
 
+type PickVM = {
+  resortId: string;
+  resortName: string;
+  score: number;
+  label: Label;
+  facts?: DayFacts;
+  bullets: string[];
+};
+
 export type WeekPlanViewModel = {
   summary: {
     decision: WeekDecision;
@@ -21,18 +30,9 @@ export type WeekPlanViewModel = {
   days: Array<{
     dateISO: string;
     label: Label;
-    topPick: {
-      resortId: string;
-      resortName: string;
-      score: number;
-      label: Label;
-    };
-    runnersUp: Array<{
-      resortId: string;
-      resortName: string;
-      score: number;
-      label: Label;
-    }>;
+    topPick: PickVM;
+    runnersUp: PickVM[];
+    // Back-compat: day-level bullets (mirrors topPick bullets)
     bullets: string[];
   }>;
   resorts: Array<{
@@ -226,6 +226,57 @@ function truthBulletsFromFacts(facts?: DayFacts): string[] {
   return out.slice(0, 3);
 }
 
+function cloneFactsWithDriveMiles(params: {
+  resortId: string;
+  facts?: DayFacts;
+  driveMilesByResortId?: Record<string, number>;
+}): DayFacts | undefined {
+  const { resortId, facts, driveMilesByResortId } = params;
+  if (!facts) return undefined;
+
+  const cloned: DayFacts = { ...(facts as any) };
+
+  if (
+    (cloned as any).driveMiles == null &&
+    driveMilesByResortId &&
+    typeof driveMilesByResortId[resortId] === "number" &&
+    Number.isFinite(driveMilesByResortId[resortId]!)
+  ) {
+    (cloned as any).driveMiles = driveMilesByResortId[resortId]!;
+  }
+
+  return cloned;
+}
+
+function bulletsForResult(params: {
+  resortId: string;
+  result?: any;
+  driveMilesByResortId?: Record<string, number>;
+}): { facts?: DayFacts; bullets: string[] } {
+  const { resortId, result, driveMilesByResortId } = params;
+
+  const facts = cloneFactsWithDriveMiles({
+    resortId,
+    facts: result?.facts as DayFacts | undefined,
+    driveMilesByResortId,
+  });
+
+  const truth = truthBulletsFromFacts(facts);
+  const reasons: string[] = Array.isArray(result?.reasons)
+    ? result.reasons
+    : [];
+
+  const bullets = (truth.length ? truth : reasons).slice(0, 3);
+
+  return {
+    facts,
+    bullets: (bullets.length
+      ? bullets
+      : ["Planner score based on snow + risk + crowds + travel"]
+    ).slice(0, 3),
+  };
+}
+
 /**
  * Build a UI-ready week planner view model on top of the existing buildWeekPlan() output.
  * This is the "planner output contract" the UI should depend on.
@@ -247,46 +298,54 @@ export function buildWeekPlanViewModel(params: {
     const best = d.best;
     const bestLabel = normalizeLabel(best?.result?.label);
     const bestScore = Number(best?.result?.score ?? 0);
+    const bestResortId = String(best?.resortId);
 
-    const runners = Array.isArray(d.topResorts)
+    const bestFactsAndBullets = bulletsForResult({
+      resortId: bestResortId,
+      result: best?.result,
+      driveMilesByResortId,
+    });
+
+    const runners: PickVM[] = Array.isArray(d.topResorts)
       ? d.topResorts
-          .filter((x: any) => x?.resortId !== best?.resortId)
+          .filter((x: any) => String(x?.resortId) !== bestResortId)
           .slice(0, 2)
-          .map((x: any) => ({
-            resortId: String(x.resortId),
-            resortName: String(x.resortName),
-            score: Number(x.result?.score ?? 0),
-            label: normalizeLabel(x.result?.label),
-          }))
+          .map((x: any) => {
+            const resortId = String(x.resortId);
+            const factsAndBullets = bulletsForResult({
+              resortId,
+              result: x?.result,
+              driveMilesByResortId,
+            });
+            return {
+              resortId,
+              resortName: String(x.resortName),
+              score: Number(x.result?.score ?? 0),
+              label: normalizeLabel(x.result?.label),
+              facts: factsAndBullets.facts,
+              bullets: factsAndBullets.bullets,
+            };
+          })
       : [];
 
-    const truthFacts = best?.result?.facts as DayFacts | undefined;
-    const truthBullets = truthBulletsFromFacts(best?.result?.facts);
-
-    const reasons: string[] = Array.isArray(best?.result?.reasons)
-      ? best.result.reasons
-      : [];
-
-    const bullets = (truthBullets.length ? truthBullets : reasons).slice(0, 3);
+    const topPick: PickVM = {
+      resortId: bestResortId,
+      resortName: String(best?.resortName),
+      score: bestScore,
+      label: bestLabel,
+      facts: bestFactsAndBullets.facts,
+      bullets: bestFactsAndBullets.bullets,
+    };
 
     return {
       dateISO: String(d.dateISO),
       label: bestLabel,
-      topPick: {
-        resortId: String(best.resortId),
-        resortName: String(best.resortName),
-        score: bestScore,
-        label: bestLabel,
-      },
+      topPick,
       runnersUp: runners,
-      bullets: (bullets.length
-        ? bullets
-        : ["Planner score based on snow + risk + crowds + travel"]
-      ).slice(0, 3),
+      bullets: topPick.bullets.slice(0, 3),
     };
   });
 
-  // Best window v0: just the best day (we’ll upgrade to best 2–3 day stretches next).
   const bestISO = String(outlook.bestDay.dateISO);
 
   const topPicks = pickTopTwoDayPicks(daysVM);
@@ -326,15 +385,14 @@ export function buildWeekPlanViewModel(params: {
     ? { resortId: backup.id, resortName: backup.name, reason: backup.reason }
     : undefined;
 
-  // Hero “why” bullets: use selected day bullets if available, else fall back to narrative.
+  // Hero “why” bullets: use pick-level bullets for the first pick day when available.
   const why = picks.length
-    ? (daysVM.find((d) => d.dateISO === picks[0].dateISO)?.bullets ?? []).slice(
-        0,
-        3,
-      )
+    ? (
+        daysVM.find((d) => d.dateISO === picks[0].dateISO)?.topPick?.bullets ??
+        []
+      ).slice(0, 3)
     : [];
 
-  // Bullet-safe fallback for the hero card (vacation full days)
   const defaultWhy = [
     "Midweek timing keeps crowds manageable",
     "Drive stays reasonable for a full-day trip",
@@ -351,7 +409,7 @@ export function buildWeekPlanViewModel(params: {
       score: p.score,
     })),
     backup: backupDecision,
-    why: why.length ? why.slice(0, 3) : defaultWhy, // we’ll improve this next
+    why: why.length ? why.slice(0, 3) : defaultWhy,
   };
 
   return {
