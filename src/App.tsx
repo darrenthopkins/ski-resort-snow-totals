@@ -10,7 +10,11 @@ import {
   setupIonicReact,
 } from "@ionic/react";
 import { IonReactRouter } from "@ionic/react-router";
-import { ellipse, square, triangle } from "ionicons/icons";
+import {
+  snowOutline,
+  informationCircleOutline,
+  mapOutline,
+} from "ionicons/icons";
 import Snow from "./pages/Snow";
 import Tab2 from "./pages/Tab2";
 import Tab3 from "./pages/Tab3";
@@ -58,7 +62,7 @@ const App: React.FC = () => (
           <Route exact path="/tab2">
             <Tab2 />
           </Route>
-          <Route path="/tab3">
+          <Route exact path="/tab3">
             <Tab3 />
           </Route>
           <Route exact path="/">
@@ -67,16 +71,18 @@ const App: React.FC = () => (
         </IonRouterOutlet>
         <IonTabBar slot="bottom">
           <IonTabButton tab="snow" href="/snow">
-            <IonIcon aria-hidden="true" icon={triangle} />
+            <IonIcon aria-hidden="true" icon={snowOutline} />
             <IonLabel>Snow</IonLabel>
           </IonTabButton>
-          <IonTabButton tab="tab2" href="/tab2">
-            <IonIcon aria-hidden="true" icon={ellipse} />
-            <IonLabel>Ignore 2</IonLabel>
+
+          <IonTabButton tab="favorites" href="/tab2">
+            <IonIcon aria-hidden="true" icon={mapOutline} />
+            <IonLabel>Favorites</IonLabel>
           </IonTabButton>
-          <IonTabButton tab="tab3" href="/tab3">
-            <IonIcon aria-hidden="true" icon={square} />
-            <IonLabel>Ignore 3</IonLabel>
+
+          <IonTabButton tab="about" href="/tab3">
+            <IonIcon aria-hidden="true" icon={informationCircleOutline} />
+            <IonLabel>About</IonLabel>
           </IonTabButton>
         </IonTabBar>
       </IonTabs>
