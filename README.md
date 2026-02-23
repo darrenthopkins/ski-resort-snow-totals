@@ -169,7 +169,7 @@ Then open `ios/App/App.xcworkspace` in Xcode and run.
 
 Follow iOS rules in:
 
-👉 docs/IOS_BUILD_RULES.md
+👉 **[IOS_BUILD_RULES.md](docs/IOS_BUILD_RULES.md)**  
 
 ---
 
@@ -187,7 +187,7 @@ Tests must remain deterministic.
 
 Scoring changes must be reflected in:
 
-👉 docs/SCORING_AND_SELECTION.md
+👉 **[SCORING_AND_SELECTION.md](docs/SCORING_AND_SELECTION.md)**  
 
 ---
 
@@ -202,7 +202,7 @@ Recommended path:
 
 Full workflow:
 
-👉 docs/ARCHITECTURE_AND_DISTRIBUTION.md
+👉 **[ARCHITECTURE_AND_DISTRIBUTION.md](docs/ARCHITECTURE_AND_DISTRIBUTION.md)**  
 
 ---
 
@@ -231,4 +231,4 @@ All behavioral changes must be reflected in documentation.
 
 If scoring or selection changes, update:
 
-👉 docs/SCORING_AND_SELECTION.md
+👉 **[SCORING_AND_SELECTION.md](docs/SCORING_AND_SELECTION.md)**  
