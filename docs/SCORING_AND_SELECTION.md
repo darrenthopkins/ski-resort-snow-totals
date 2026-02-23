@@ -1,198 +1,256 @@
-# Scoring and Selection
+# SCORING_AND_SELECTION
 
-This document describes how the app computes a **day score + label (GO / WAIT / SKIP)** for each resort/day and how it selects recommended resorts across the week.
+This document defines how ski-resort-snow-totals computes:
 
-The intent is product-driven:
+- Per-day resort scores
+- Labels (GO / WAIT / SKIP)
+- Explanatory “Why” bullets
+- Week-level selection behavior (including anti-repeat logic)
 
-- **New snow dominates** decision-making (storm days should not be “SKIP” because of secondary factors).
-- **Weather varies per day** (NWS per-day bins), and should influence day-by-day differences.
-- **Distance matters**, but should not introduce cliff behavior.
-- The UI’s “Why” bullets must reflect the **actual inputs used**.
-
----
-
-## Terms
-
-### SnowMetrics (input)
-Returned by `SnowService.getSnow()`. Includes:
-
-- `last48In`, `next24In`
-- Snapshot weather: `minTempF`, `maxTempF`, `maxWindMph` (next-24 derived)
-- Per-day bins (preferred):
-  - `weekSnowDaily[]` (dateISO → inches)
-  - `weekWeatherDaily[]` (dateISO → min/max temp, max wind)
-
-### DayFacts (scoring facts)
-Derived per **resort + dateISO** in the adapter layer.
-
-Fields used for confidence scoring:
-
-- `newSnowInches` (per-day snow estimate, see below)
-- `baseDepthInches` (currently a conservative synthesized default)
-- `minTempF`, `maxTempF`, `maxWindMph` (per-day weather bins preferred)
-- `isWeekend` (crowd penalty)
-- `driveMiles?` (optional; used for distance penalty)
+This is the canonical reference for product behavior.
 
 ---
 
-## Adapter: from SnowMetrics → DayFacts
+# 1. High-Level Product Principles
 
-### New snow per day (`newSnowInches`)
+The scoring system is designed around the following intent:
+
+1. **New snow dominates.**
+   Storm days should not be marked SKIP due to secondary factors.
+
+2. **Weather is per-day.**
+   Temperature and wind vary day-to-day and must affect the score.
+
+3. **Distance matters, but smoothly.**
+   No harsh cliffs in drive penalties.
+
+4. **Explainability is mandatory.**
+   The UI must reflect the actual facts used in scoring.
+
+5. **Avoid same-resort repetition when reasonable.**
+   If two resorts are close in score, don’t repeat the same one on adjacent days.
+
+---
+
+# 2. Data Flow Overview
+
+SnowService → SnowMetrics → Adapter → DayFacts → calculateConfidence() → WeekOutlook
+
+## SnowMetrics (input from SnowService)
+
+Includes:
+
+- last48In
+- next24In
+- minTempF / maxTempF / maxWindMph (snapshot)
+- weekSnowDaily[]
+- weekWeatherDaily[]
+
+Per-day bins are preferred whenever available.
+
+---
+
+# 3. Adapter: SnowMetrics → DayFacts
+
+Each (resort, dateISO) pair becomes a DayFacts object.
+
+## 3.1 newSnowInches
+
 Priority order:
 
-1) **Per-day NWS bins** (preferred):  
-   `weekSnowDaily.find(dateISO).inches`
+1) weekSnowDaily (per-day NWS bins)
+2) Fallback:
+   - dayIndex 0 → last48In / 2
+   - dayIndex 1 → next24In
+   - later days → 0
 
-2) Fallback (when per-day bins are not available):  
-   Uses `last48In` + `next24In` heuristics with `dayIndex`:
-   - `dayIndex = 0`: estimate from `last48In/2`
-   - `dayIndex = 1`: `next24In`
-   - later days: `0` (until per-day snow bins exist)
+## 3.2 Weather (minTempF, maxTempF, maxWindMph)
 
-### Weather per day (min/max temp + wind)
-Per-day weather is pulled from:
+Priority order:
 
-- `weekWeatherDaily.find(dateISO)` **if bins exist**
-- If bins do not exist at all, fall back to snapshot fields:
-  - `minTempF`, `maxTempF`, `maxWindMph`
-- Otherwise use conservative defaults.
+1) weekWeatherDaily.find(dateISO)
+2) Snapshot fields (only if no daily bins exist at all)
+3) Conservative defaults
 
-Important behavior:
-- If `weekWeatherDaily` exists but a day lookup misses, we **do not** silently revert to snapshot (prevents “frozen week” scoring).
+If daily bins exist but a lookup fails, we do NOT revert to snapshot to avoid frozen-week behavior.
 
-### Base depth (`baseDepthInches`)
-SnowMetrics currently does not include base depth. For now:
+## 3.3 Base Depth
 
-- `baseDepthInches` is set to a conservative synthesized default (e.g., `24`).
-
-This is intentionally stable and will be revisited once we ingest base depth from a reliable source.
+Currently synthesized (e.g., default 24").
+This will be upgraded when real base depth is ingested.
 
 ---
 
-## Confidence scoring (score + label + reasons)
+# 4. Confidence Scoring
 
-The scoring function produces:
+calculateConfidence(facts: DayFacts) produces:
 
-- `score` in **0..100**
-- `label` in `{ green, yellow, red }`
-- `reasons[]` (short bullets for explainability)
+- score: number (0–100)
+- label: "green" | "yellow" | "red"
+- reasons: string[]
 
-### Label mapping
-UI interpretation:
+## 4.1 Label Mapping (UI)
 
-- `green` → **GO**
-- `yellow` → **WAIT**
-- `red` → **SKIP**
+green  → GO  
+yellow → WAIT  
+red    → SKIP  
 
-### Base formula (additive points)
-The raw score is:
+## 4.2 Score Calculation
 
-Then clamped to 0..100.
+```
+raw =
+  BASELINE_POINTS
+  + snow.points
+  + base.points
+  + temperature.points
+  + wind.points
+  + crowds.points
+  + drive.points
+```
 
-### Thresholds (score → label)
-By default:
+Clamped to 0–100.
 
-- `score >= 80` → `green`
-- `score >= 60` → `yellow`
-- otherwise → `red`
+### Thresholds
 
-### Component scoring
-#### Snow (dominant)
-Buckets (example intent):
-- `>= 8"` → strong positive
-- `>= 5"` → strong positive
-- `>= 2"` → moderate positive
+- score ≥ 80 → green
+- score ≥ 60 → yellow
+- else → red
+
+---
+
+# 5. Component Scoring
+
+## 5.1 Snow (dominant)
+
+Example buckets:
+
+- ≥ 8" → very strong positive
+- ≥ 5" → strong positive
+- ≥ 2" → moderate positive
 - otherwise small positive
 
-#### Base depth
-Currently mild influence because it’s synthesized and not yet data-driven.
+Snow is intentionally weighted heavily.
 
-#### Temperature
-Uses **per-day** values. Daytime high drives the main bucket, with small modifiers based on morning low (for day-to-day differentiation).
+## 5.2 Base
 
-#### Wind
-Uses **per-day** values. Wind is penalized and may include a small bonus for very calm days.
+Currently mild influence due to synthesized value.
 
-#### Crowds
-Weekend days receive a penalty.
+## 5.3 Temperature (Per-Day)
 
-#### Drive distance
-Drive penalty is **smooth** (no cliffs), using a smoothstep ramp from “no penalty” to “max penalty”.
-Parameters are centralized.
+Uses both minTempF and maxTempF.
 
----
+- Daytime high determines main bucket.
+- Morning low can apply small modifier for differentiation.
+- Extreme warmth or extreme cold penalizes.
 
-## Storm floor rules (label clamp)
+## 5.4 Wind (Per-Day)
 
-Because product intent prioritizes storm events, we clamp labels upward after the raw label is computed.
+Wind penalizes lift reliability and comfort.
 
-Current intent:
+- Very calm days may receive a small bonus.
+- Penalty increases progressively with wind speed.
 
-- **≥ 2" new snow:** cannot be `red` (at least **WAIT**)
-- **≥ 5" new snow:** should be `green` (**GO**) unless/until a “hard veto” is implemented (e.g., rain, unsafe wind)
+## 5.5 Crowds
 
-This prevents “SKIP” on days where meaningful snow is expected.
+Weekend → penalty  
+Weekday → neutral
 
-Notes:
-- We do not yet implement a hard veto (e.g., rain), because precipitation type is not reliably present in DayFacts.
-- If/when hard veto signals exist, they can override storm floors in a principled way.
+## 5.6 Drive Distance
 
----
+Uses smooth ramp (no cliffs):
 
-## Reasons / Explainability (“Why” bullets)
-
-The `reasons[]` output should be:
-
-- Based on **actual DayFacts used**
-- Stable and not overly verbose
-- Reflect the main contributors:
-  - snow bucket
-  - base bucket
-  - temp/wind bucket
-  - weekend crowds
-  - drive distance (if present)
-  - storm-floor clamp (when applied)
+- No penalty under threshold
+- Smooth increase toward max penalty
+- Parameters centralized
 
 ---
 
-## Week outlook selection
+# 6. Storm Floor Rules (Label Clamp)
 
-### Per-day ranking
-For each dateISO:
+Storm floors override the raw label to match product intent.
 
-1) Compute confidence result per resort (score + label + reasons)
-2) Rank resorts for that day primarily by:
-   - label preference (`green > yellow > red`)
+Current rules:
+
+- ≥ 2" new snow:
+  → Cannot be red (at least WAIT)
+
+- ≥ 5" new snow:
+  → Should be green (GO)
+
+This prevents SKIP on meaningful snow days.
+
+Note:
+Hard veto conditions (rain, unsafe wind) are not yet implemented.
+When added, they may override storm floors.
+
+---
+
+# 7. Explainability (“Why” Bullets)
+
+Reasons reflect actual scoring inputs:
+
+- Snow bucket
+- Base bucket
+- Temperature bucket
+- Wind bucket
+- Weekend penalty
+- Drive penalty
+- Storm-floor adjustments (when applied)
+
+Reasons must remain stable and concise.
+
+---
+
+# 8. Week Outlook Selection
+
+## 8.1 Per-Day Ranking
+
+For each date:
+
+1. Compute confidence for all resorts
+2. Rank by:
+   - label priority (green > yellow > red)
    - score (descending)
-   - deterministic tie-breakers (stable ordering)
+   - deterministic tie-breakers
 
-### Avoid repeating the same resort on adjacent days
-To prevent “same resort both days” when choices are close:
+## 8.2 Avoid Same Resort on Adjacent Days
 
-- If day N’s best resort is the same as day N-1’s best:
-  - choose the best alternative resort **if** its score is within a small delta of the top score
-  - otherwise keep the top resort (don’t force a bad switch)
+To prevent repetitive plans:
 
-Parameters are centralized (e.g., `MAX_REPEAT_PENALTY_POINTS = 8`).
+If day N’s best resort equals day N-1’s best:
 
-This preserves “best snow wins” while improving variety and user trust.
+- Select the best alternative resort
+- Only if its score is within MAX_REPEAT_PENALTY_POINTS
+- Otherwise keep original best
+
+This preserves snow dominance while improving variety.
 
 ---
 
-## Testing / Verification
+# 9. Testing Requirements
 
-Unit tests should cover:
+Unit tests must verify:
 
-- **Per-day weather bins** change score/label when only `minTempF/maxTempF/maxWindMph` differ.
-- **Storm floor** clamping:
-  - `>= 2"` cannot be red
-  - `>= 5"` becomes green
-- **Drive penalty** is smooth (no cliff discontinuities).
-- **No adjacent repeats**: switches to a close runner-up when the top repeats.
+- Per-day weather bins affect scoring
+- ≥ 2" snow cannot be red
+- ≥ 5" snow becomes green
+- Drive penalty is smooth (no cliffs)
+- Adjacent-day repeat logic works
+- Deterministic ordering is preserved
 
-Recommended commands:
+Run:
 
-```bash
-npm run test.unit
+```
 npm run typecheck
+npm run test.unit
+```
 
+---
+
+# 10. Known Limitations
+
+- Base depth is synthetic.
+- No precipitation-type veto yet.
+- Weather buckets may be further tuned.
+
+This document must be updated whenever scoring constants or thresholds change.
