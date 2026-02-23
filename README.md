@@ -120,6 +120,8 @@ Template for launching new structured GPT threads:
 ---
 
 # Repository Structure
+Canonical branch: demo/ios-demo  
+Frozen baseline: v1-demo-truth (tagged as v1-demo-truth-final)
 
 ```
 src/
