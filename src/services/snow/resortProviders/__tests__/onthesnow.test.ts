@@ -37,5 +37,7 @@ describe("OnTheSnow parsing", () => {
     const v = __test__.parseLast48FromRecentSnowfall(html);
     // 24h + previous day (Tue=2.5, 24h=1) => 3.5
     expect(v).toBeCloseTo(3.5, 5);
+    expect(__test__.toInches(5.08)).toBe(2);
+    expect(__test__.toInches(7.62)).toBe(3);
   });
 });

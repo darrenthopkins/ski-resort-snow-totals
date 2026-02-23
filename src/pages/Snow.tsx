@@ -408,6 +408,9 @@ export default function Snow() {
         const result = await snowService.getSnow({
           resorts: resortsForFetch,
         });
+        const first = Object.entries(result)[0];
+        console.log("[Snow.tsx.metrics.sample]", first?.[0], first?.[1]);
+
         if (!alive) return;
         setSnowById(result);
       } finally {

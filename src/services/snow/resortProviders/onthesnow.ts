@@ -32,7 +32,20 @@ function extractNextData(html: string): any | null {
  * Accepts numbers or strings like '3', '3.5', '3"', '3 in', '0'
  */
 function toInches(x: any): number | null {
-  if (typeof x === "number" && Number.isFinite(x)) return x;
+  if (typeof x === "number" && Number.isFinite(x)) {
+    // OnTheSnow __NEXT_DATA__ is inconsistent: some resorts emit metric numbers
+    // for snowfall fields without a unit string. A very common artifact is values
+    // like 5.08 (== 5.08 cm == 2.0 in) or 7.62 (== 3.0 in).
+    //
+    // We apply a tight heuristic:
+    // - If value converts cleanly from cm -> inches (within tolerance),
+    //   treat it as centimeters and convert.
+    // - Otherwise, leave as inches.
+    const inchesFromCm = x / 2.54;
+    const nearestInt = Math.round(inchesFromCm);
+    if (Math.abs(inchesFromCm - nearestInt) < 0.001) return nearestInt;
+    return x;
+  }
   if (typeof x !== "string") return null;
 
   const s = x.trim().toLowerCase();
@@ -531,12 +544,13 @@ export async function getOnTheSnowLast48(resort: Resort) {
     });
   }
 
-  const updatedAt = new Date().toISOString(); // ✅ stable
-
+  const updatedAtISO = parseUpdatedISO(html); // may be null
+  const updatedAt = updatedAtISO ?? new Date().toISOString(); // fallback only
   return { last48In, updatedAt, sourceUrl: url };
 }
 
 export const __test__ = {
   parseLast48FromRecentSnowfall,
   parseUpdated,
+  toInches,
 };

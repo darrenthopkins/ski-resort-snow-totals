@@ -57,22 +57,59 @@ function scoreBase(baseDepthInches: number): ComponentScore {
   return { points: 0, reasons: ["Thin base (< 20 inches)"] };
 }
 
-function scoreTemperature(_minTempF: number, maxTempF: number): ComponentScore {
+function scoreTemperature(minTempF: number, maxTempF: number): ComponentScore {
   const hi = maxTempF;
+  const lo = minTempF;
 
-  if (hi >= 20 && hi <= 32) return { points: 10, reasons: ["Temperatures ideal for snow quality"] };
-  if (hi >= 10 && hi <= 19) return { points: 0, reasons: ["Cold temps (manageable)"] };
-  if (hi >= 33 && hi <= 38) return { points: -5, reasons: ["Above-freezing risk (possible wet/icy conditions)"] };
-  if (hi < 10) return { points: -10, reasons: ["Very cold (comfort/lift exposure risk)"] };
-  return { points: -20, reasons: ["Warm temps (melt/ice risk)"] };
+  // Base score driven by daytime high (as before)
+  let points: number;
+  let reason: string;
+
+  if (hi >= 20 && hi <= 32) {
+    points = 10;
+    reason = "Temperatures ideal for snow quality";
+  } else if (hi >= 10 && hi <= 19) {
+    points = 0;
+    reason = "Cold temps (manageable)";
+  } else if (hi >= 33 && hi <= 38) {
+    points = -5;
+    reason = "Above-freezing risk (possible wet/icy conditions)";
+  } else if (hi < 10) {
+    points = -10;
+    reason = "Very cold (comfort/lift exposure risk)";
+  } else {
+    points = -20;
+    reason = "Warm temps (melt/ice risk)";
+  }
+
+  // NEW: morning low modifier to differentiate per-day bins
+  // (kept small so it doesn't dominate snow)
+  if (lo < 5) {
+    points -= 4;
+    return {
+      points,
+      reasons: [reason, "Frigid morning low (added exposure penalty)"],
+    };
+  }
+  if (lo >= 20 && hi <= 32) {
+    points += 2;
+    return { points, reasons: [reason, "Mild morning low (bonus)"] };
+  }
+
+  return { points, reasons: [reason] };
 }
 
 function scoreWind(maxWindMph: number): ComponentScore {
   const w = Math.max(0, maxWindMph);
 
+  if (w <= 5) return { points: 2, reasons: ["Calm winds"] };
   if (w <= 10) return { points: 0, reasons: ["Light winds"] };
   if (w <= 20) return { points: -5, reasons: ["Breezy (minor lift exposure)"] };
-  if (w <= 30) return { points: -10, reasons: ["Windy (lift exposure / potential holds)"] };
+  if (w <= 30)
+    return {
+      points: -10,
+      reasons: ["Windy (lift exposure / potential holds)"],
+    };
   return { points: -20, reasons: ["Very windy (high lift/comfort risk)"] };
 }
 
@@ -82,16 +119,44 @@ function scoreCrowds(isWeekend: boolean): ComponentScore {
     : { points: 0, reasons: ["Weekday crowds"] };
 }
 
+type DriveParams = {
+  zeroPenaltyMiles: number; // no penalty at/below this
+  fullPenaltyMiles: number; // max penalty at/above this
+  maxPenaltyPoints: number; // negative points (e.g. -20)
+};
+
+const DRIVE_PARAMS: DriveParams = {
+  zeroPenaltyMiles: 50,
+  fullPenaltyMiles: 140,
+  maxPenaltyPoints: -20,
+};
+
+function smoothstep01(t: number): number {
+  const x = Math.min(1, Math.max(0, t));
+  return x * x * (3 - 2 * x);
+}
+
 function scoreDriveMiles(driveMiles?: number): ComponentScore {
-  if (driveMiles == null || !Number.isFinite(driveMiles)) return { points: 0, reasons: [] };
+  if (driveMiles == null || !Number.isFinite(driveMiles))
+    return { points: 0, reasons: [] };
 
   const m = Math.max(0, driveMiles);
 
-  // Tuned for "parent + kid" convenience: closer is meaningfully better.
-  if (m <= 50) return { points: 0, reasons: [`Short drive (${Math.round(m)} mi)`] };
-  if (m <= 80) return { points: -5, reasons: [`Moderate drive (${Math.round(m)} mi)`] };
-  if (m <= 110) return { points: -10, reasons: [`Long drive (${Math.round(m)} mi)`] };
-  return { points: -20, reasons: [`Very long drive (${Math.round(m)} mi)`] };
+  if (m <= DRIVE_PARAMS.zeroPenaltyMiles) {
+    return { points: 0, reasons: [`Short drive (${Math.round(m)} mi)`] };
+  }
+
+  const span = Math.max(
+    1,
+    DRIVE_PARAMS.fullPenaltyMiles - DRIVE_PARAMS.zeroPenaltyMiles,
+  );
+  const t = (m - DRIVE_PARAMS.zeroPenaltyMiles) / span;
+  const ramp = smoothstep01(t);
+
+  const points = Math.round(ramp * DRIVE_PARAMS.maxPenaltyPoints); // negative
+  const bucket = m < 80 ? "Moderate" : m < 110 ? "Long" : "Very long";
+
+  return { points, reasons: [`${bucket} drive (${Math.round(m)} mi)`] };
 }
 
 export function calculateConfidence(facts: DayFacts): ConfidenceResult {
@@ -122,7 +187,23 @@ export function calculateConfidence(facts: DayFacts): ConfidenceResult {
     drive.points;
 
   const score = clampInt(raw, 0, 100);
-  const label = labelForScore(score);
+  let label = labelForScore(score);
+
+  // Storm floor rule (label clamp)
+  // Product intent:
+  // - ≥ 3" new snow: should not be red (at least "wait/consider")
+  // - ≥ 5" new snow: should be green/go unless we later add a hard veto (rain/unsafe)
+  if (Number.isFinite(facts.newSnowInches)) {
+    const s = facts.newSnowInches;
+
+    if (s >= 5 && label !== "green") {
+      label = "green";
+      reasons.push(`Storm floor: ${s.toFixed(1)}" new snow → go (green)`);
+    } else if (s >= 2 && label === "red") {
+      label = "yellow";
+      reasons.push(`Storm floor: ${s.toFixed(1)}" new snow → wait (not red)`);
+    }
+  }
 
   return { score, label, reasons };
 }
