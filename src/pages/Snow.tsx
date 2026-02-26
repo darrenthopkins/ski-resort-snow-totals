@@ -6,8 +6,10 @@ import {
   IonItem,
   IonLabel,
   IonList,
+  IonModal,
   IonNote,
   IonPage,
+  IonRange,
   IonSkeletonText,
   IonTitle,
   IonToolbar,
@@ -32,8 +34,6 @@ import {
 } from "ionicons/icons";
 import { resolveGeo, clearGeoCache } from "../services/geo/location";
 import type { GeoReady as GeoReadyFromSvc } from "../services/geo/location";
-
-const MAX_MILES = 110;
 
 const FALLBACK_DRIVE_MILES: Record<string, number> = {
   patspeak: 47,
@@ -148,12 +148,13 @@ export default function Snow() {
     }
 
     const here = { lat: geo.lat, lon: geo.lon };
+
+    // Compute miles for all resorts (NO radius filtering here).
+    // Radius filtering happens once downstream (inRadiusResortsWithMiles).
     return RESORTS.map((r) => ({
       resort: r,
       miles: haversineMiles(here, { lat: r.lat, lon: r.lon }),
-    }))
-      .filter((x) => x.miles <= MAX_MILES)
-      .sort((a, b) => (a.miles ?? 0) - (b.miles ?? 0));
+    }));
   }, [geo]);
 
   const driveMilesById = useMemo(() => {
@@ -168,7 +169,7 @@ export default function Snow() {
         typeof id === "string" &&
         typeof miles === "number" &&
         Number.isFinite(miles) &&
-        miles > 0
+        miles >= 0
       ) {
         m[id] = miles;
       }
@@ -177,12 +178,75 @@ export default function Snow() {
     return m;
   }, [resortsWithMiles]);
 
-  const resortsForFetch = useMemo(
-    () => resortsWithMiles.map((x) => x.resort),
-    [resortsWithMiles],
-  );
+  // Default radius (future hook: allow override via localStorage)
+  const DEFAULT_MAX_MILES = 110;
+  const LS_MAX_MILES = "srs_max_miles_v1";
 
-  // Load snow data via service abstraction
+  function clampMiles(n: number) {
+    const v = Math.round(n / 10) * 10;
+    return Math.max(10, Math.min(300, v));
+  }
+
+  function readMaxMiles(): number {
+    try {
+      const raw = localStorage.getItem(LS_MAX_MILES);
+      const n = raw ? Number(raw) : NaN;
+      if (Number.isFinite(n) && n > 0) return clampMiles(n);
+    } catch {}
+    return DEFAULT_MAX_MILES;
+  }
+
+  const [maxMiles, setMaxMiles] = useState<number>(() => readMaxMiles());
+  const [radiusOpen, setRadiusOpen] = useState(false);
+
+  function persistMaxMiles(n: number) {
+    const v = clampMiles(n);
+    setMaxMiles(v);
+    try {
+      localStorage.setItem(LS_MAX_MILES, String(v));
+    } catch {}
+  }
+
+  function getMaxMiles(): number {
+    try {
+      const raw = localStorage.getItem(LS_MAX_MILES);
+      if (!raw) return DEFAULT_MAX_MILES;
+      const n = Number(raw);
+      if (Number.isFinite(n) && n > 0 && n < 500) return n;
+    } catch {
+      // ignore
+    }
+    return DEFAULT_MAX_MILES;
+  }
+
+  /**
+   * Single boundary:
+   * resortsWithMiles -> filter <= maxMiles -> deterministic sort -> resortsForFetch
+   * This same filtered+sorted list should also be used for UI rendering.
+   */
+  const inRadiusResortsWithMiles = useMemo(() => {
+    return (
+      resortsWithMiles
+        // safety: tolerate undefined miles
+        .filter((x) => (x.miles ?? Number.POSITIVE_INFINITY) <= maxMiles)
+        // deterministic: miles asc, then id asc
+        .sort(
+          (a, b) =>
+            (a.miles ?? 0) - (b.miles ?? 0) ||
+            String(a.resort?.id ?? "").localeCompare(
+              String(b.resort?.id ?? ""),
+            ),
+        )
+    );
+  }, [resortsWithMiles, maxMiles]);
+
+  const resortsForFetch = useMemo(
+    () => inRadiusResortsWithMiles.map((x) => x.resort),
+    [inRadiusResortsWithMiles],
+  );
+  const resortsInRadius = resortsForFetch; // alias for clarity
+
+  // Load snow data via service abstraction (bounded to filtered set)
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -200,7 +264,7 @@ export default function Snow() {
     return () => {
       alive = false;
     };
-  }, [resortsForFetch]);
+  }, [resortsForFetch, snowService]);
 
   // Planner
   const outlook = useMemo(() => {
@@ -220,10 +284,10 @@ export default function Snow() {
     if (!outlook) return null;
     return buildWeekPlanViewModel({
       outlook,
-      resorts: RESORTS,
+      resorts: resortsInRadius, // ✅ filtered
       driveMilesByResortId: driveMilesById,
     });
-  }, [outlook, driveMilesById]);
+  }, [outlook, driveMilesById, resortsInRadius]);
 
   // --- Week timeline selection (v0) ---
   const [selectedDateISO, setSelectedDateISO] = useState<string | null>(null);
@@ -307,21 +371,74 @@ export default function Snow() {
   }
 
   const headerNote = useMemo(() => {
-    if (geo.status === "loading")
-      return <IonNote>Getting your location…</IonNote>;
+    // Age formatting with rounding
+    function formatAgeRounded(ms: number): string {
+      const totalMinutes = Math.max(0, Math.round(ms / 60000));
+
+      if (totalMinutes < 60) return `${totalMinutes}m ago`;
+
+      const totalHours = totalMinutes / 60;
+
+      // Under 6h: round to nearest 15m
+      if (totalHours < 6) {
+        const rounded15 = Math.round(totalMinutes / 15) * 15;
+        const h = Math.floor(rounded15 / 60);
+        const m = rounded15 % 60;
+        if (m === 0) return `${h}h ago`;
+        return `${h}h ${m}m ago`;
+      }
+
+      // 6h–48h: round to nearest hour
+      if (totalHours < 48) {
+        const h = Math.round(totalHours);
+        return `${h}h ago`;
+      }
+
+      // 2d+: round to nearest day, include hours only if material
+      const days = Math.floor(totalHours / 24);
+      const remHours = Math.round(totalHours - days * 24);
+      if (remHours <= 1) return `${days}d ago`;
+      return `${days}d ${remHours}h ago`;
+    }
+
+    // Subtle degrade based on staleness
+    function ageTone(ageMs: number) {
+      const mins = ageMs / 60000;
+      if (mins <= 30) return { opacity: 0.9, color: undefined as any };
+      if (mins <= 6 * 60) return { opacity: 0.82, color: undefined as any };
+      if (mins <= 24 * 60) return { opacity: 0.72, color: undefined as any };
+      return { opacity: 0.72, color: "warning" as const };
+    }
+
+    if (geo.status === "loading") {
+      return <IonNote style={{ opacity: 0.8 }}>Getting location…</IonNote>;
+    }
 
     if (geo.status === "ready") {
-      const src =
+      const ageMs = Date.now() - geo.at;
+
+      const sourceLabel =
         geo.source === "current"
           ? "current"
           : geo.source === "cached"
             ? "saved"
             : "default";
-      const ageMin = Math.round((Date.now() - geo.at) / 60000);
+
+      const tone =
+        geo.source === "current"
+          ? { opacity: 0.9, color: undefined }
+          : ageTone(ageMs);
+
+      // We are *not* reverse-geocoding here (no new APIs).
+      // If you later add a known anchor label, you can inject it here.
+      const line =
+        geo.source === "current"
+          ? `${maxMiles} mi · current`
+          : `${maxMiles} mi · ${sourceLabel} ${formatAgeRounded(ageMs)}`;
+
       return (
-        <IonNote>
-          Location: using {src}
-          {geo.source !== "current" ? ` (${ageMin}m old)` : ""}
+        <IonNote color={tone.color} style={{ opacity: tone.opacity }}>
+          {line}
           <IonButton
             size="small"
             fill="outline"
@@ -336,8 +453,8 @@ export default function Snow() {
 
     if (geo.status === "error") {
       return (
-        <IonNote color="warning">
-          Location off: {geo.message} (showing all resorts)
+        <IonNote color="warning" style={{ opacity: 0.78 }}>
+          {maxMiles} mi · location off
           <IonButton
             size="small"
             fill="outline"
@@ -351,7 +468,7 @@ export default function Snow() {
     }
 
     return null;
-  }, [geo]);
+  }, [geo, maxMiles, retryLocation]);
 
   return (
     <IonPage>
@@ -890,8 +1007,21 @@ export default function Snow() {
                 }}
               >
                 <strong>Filter</strong>
-                <IonBadge>{MAX_MILES} miles</IonBadge>
+
+                <IonButton
+                  size="small"
+                  fill="outline"
+                  onClick={() => setRadiusOpen(true)}
+                  aria-label="Change drive radius"
+                  title="Change drive radius"
+                  style={{ height: 28 }}
+                >
+                  <IonBadge style={{ marginRight: 6 }}>{maxMiles} mi</IonBadge>
+                  <span style={{ fontSize: 12, opacity: 0.85 }}>Radius</span>
+                </IonButton>
+
                 {headerNote}
+
                 <IonButton
                   size="small"
                   fill="outline"
@@ -908,6 +1038,52 @@ export default function Snow() {
             </IonLabel>
           </IonItem>
         </IonList>
+
+        <IonModal isOpen={radiusOpen} onDidDismiss={() => setRadiusOpen(false)}>
+          <IonHeader>
+            <IonToolbar>
+              <IonTitle>Drive radius</IonTitle>
+              <IonButton
+                slot="end"
+                fill="clear"
+                onClick={() => setRadiusOpen(false)}
+              >
+                Done
+              </IonButton>
+            </IonToolbar>
+          </IonHeader>
+
+          <IonContent className="ion-padding">
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{ fontWeight: 800, fontSize: 16 }}>{maxMiles} mi</div>
+
+              <IonRange
+                min={10}
+                max={300}
+                step={10}
+                snaps={true}
+                pin={true}
+                value={maxMiles}
+                onIonChange={(e) => {
+                  const v = Number(e.detail.value);
+                  if (Number.isFinite(v)) persistMaxMiles(v);
+                }}
+              />
+
+              <div style={{ fontSize: 13, opacity: 0.75 }}>
+                Adjust in 10-mile increments. This immediately refilters resorts
+                and refetches snow only for in-radius resorts.
+              </div>
+
+              <IonButton
+                fill="outline"
+                onClick={() => persistMaxMiles(DEFAULT_MAX_MILES)}
+              >
+                Reset to {DEFAULT_MAX_MILES} mi
+              </IonButton>
+            </div>
+          </IonContent>
+        </IonModal>
 
         <IonList inset={true}>
           <IonItem lines="full">
@@ -954,7 +1130,7 @@ export default function Snow() {
                   </IonLabel>
                 </IonItem>
               ))
-            : resortsWithMiles.map(({ resort, miles }) => {
+            : inRadiusResortsWithMiles.map(({ resort, miles }) => {
                 const snow = snowById[resort.id] ?? {
                   last48In: null,
                   next24In: null,
