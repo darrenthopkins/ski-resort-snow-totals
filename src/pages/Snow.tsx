@@ -31,14 +31,13 @@ import type { SnowMetrics } from "../services/snow/types";
 
 import { resolveGeo, clearGeoCache } from "../services/geo/location";
 import type { GeoReady as GeoReadyFromSvc } from "../services/geo/location";
-
 import {
-  snowOutline,
-  partlySunnyOutline,
   carOutline,
+  leafOutline,
+  navigateOutline,
   refreshOutline,
+  thermometerOutline,
 } from "ionicons/icons";
-
 /** ---------------------------
  *  Constants / helpers (module scope)
  *  --------------------------- */
@@ -79,12 +78,6 @@ function readMaxMiles(): number {
     if (Number.isFinite(n) && n > 0) return clampMiles(n);
   } catch {}
   return DEFAULT_MAX_MILES;
-}
-
-function addDaysISO(startISO: string, days: number): string {
-  const d = new Date(startISO + "T00:00:00");
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
 }
 
 function fmtInches(v: number | null) {
@@ -136,6 +129,42 @@ export default function Snow() {
   // Bump this to force a refetch without reload.
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [geoNonce, setGeoNonce] = useState(0);
+
+  const ageCompact = useMemo(() => {
+    if (geo.status !== "ready") return null;
+    const ageMs = Date.now() - geo.at;
+
+    const totalMinutes = Math.max(0, Math.round(ageMs / 60000));
+    if (totalMinutes < 60) return `${totalMinutes}m`;
+
+    const totalHours = totalMinutes / 60;
+    if (totalHours < 6) {
+      const rounded15 = Math.round(totalMinutes / 15) * 15;
+      const h = Math.floor(rounded15 / 60);
+      const m = rounded15 % 60;
+      return m === 0 ? `${h}h` : `${h}h ${m}m`;
+    }
+
+    if (totalHours < 48) return `${Math.round(totalHours)}h`;
+
+    const days = Math.floor(totalHours / 24);
+    const remHours = Math.round(totalHours - days * 24);
+    return remHours <= 1 ? `${days}d` : `${days}d ${remHours}h`;
+  }, [geo]);
+
+  const radiusStatus = useMemo(() => {
+    if (geo.status === "ready") {
+      if (geo.source === "current") return "from you · now";
+      if (geo.source === "cached")
+        return ageCompact
+          ? `from you · saved ${ageCompact} ago`
+          : "from you · previous";
+      return "from you · saved";
+    }
+    if (geo.status === "loading") return "getting location…";
+    if (geo.status === "error") return "location off";
+    return "location…";
+  }, [geo, ageCompact]);
 
   /** ---------------------------
    *  Geo resolve (soft)
@@ -191,7 +220,11 @@ export default function Snow() {
       return RESORTS.map((r) => ({ resort: r, miles: null as number | null }));
     }
 
-    const here = { lat: geo.lat, lon: geo.lon };
+    const ANCHOR = { lat: 42.657, lon: -71.137 }; // North Andover-ish
+
+    const here =
+      geo.status === "ready" ? { lat: geo.lat, lon: geo.lon } : ANCHOR;
+
     return RESORTS.map((r) => ({
       resort: r,
       miles: haversineMiles(here, { lat: r.lat, lon: r.lon }),
@@ -200,7 +233,7 @@ export default function Snow() {
       .sort(
         (a, b) =>
           (a.miles ?? 0) - (b.miles ?? 0) ||
-          String(a.resort?.id ?? "").localeCompare(String(b.resort?.id ?? "")),
+          a.resort.id.localeCompare(b.resort.id),
       );
   }, [geo, maxMiles]);
 
@@ -363,12 +396,31 @@ export default function Snow() {
     return "Skip";
   }
 
+  function fmtRecentSnowHero(v: number | null | undefined): string {
+    if (v == null) return "No recent snow";
+    const n = Number(v);
+    if (!Number.isFinite(n)) return "No recent snow";
+    if (n <= 0) return "No recent snow";
+    const rounded = Math.round(n * 10) / 10;
+    if (rounded <= 0) return "No recent snow";
+    return `${rounded.toFixed(1)}" recent`;
+  }
+
+  function fmtNext24SnowHero(v: number | null | undefined): string {
+    if (v == null) return "— next 24";
+    const n = Number(v);
+    if (!Number.isFinite(n)) return "— next 24";
+    if (n <= 0) return "No snow next 24";
+    return `${n.toFixed(1)}" next 24`;
+  }
   /** ---------------------------
-   *  Header note (calm, non-debug)
+   *  Header note (compass freshness only)
    *  --------------------------- */
   const headerNote = useMemo(() => {
     function formatAgeRounded(ms: number): string {
       const totalMinutes = Math.max(0, Math.round(ms / 60000));
+      // Treat "basically now" as now (avoid "0m ago")
+      if (totalMinutes <= 0) return "now";
       if (totalMinutes < 60) return `${totalMinutes}m ago`;
 
       const totalHours = totalMinutes / 60;
@@ -398,62 +450,64 @@ export default function Snow() {
     }
 
     if (geo.status === "loading") {
-      return <IonNote style={{ opacity: 0.8 }}>Getting location…</IonNote>;
+      return (
+        <IonNote
+          style={{
+            opacity: 0.8,
+            display: "inline-flex",
+            gap: 6,
+            alignItems: "center",
+          }}
+        >
+          <IonIcon icon={navigateOutline} aria-hidden="true" />
+          Locating…
+        </IonNote>
+      );
     }
 
     if (geo.status === "ready") {
       const ageMs = Date.now() - geo.at;
-      const sourceLabel =
-        geo.source === "current"
-          ? "current"
-          : geo.source === "cached"
-            ? "saved"
-            : "default";
-
+      const ageText = formatAgeRounded(ageMs);
       const tone =
-        geo.source === "current"
-          ? { opacity: 0.9, color: undefined }
+        geo.source === "current" && ageText === "now"
+          ? { opacity: 0.9, color: undefined as any }
           : ageTone(ageMs);
 
-      const line =
-        geo.source === "current"
-          ? `${maxMiles} mi · current`
-          : `${maxMiles} mi · ${sourceLabel} ${formatAgeRounded(ageMs)}`;
-
       return (
-        <IonNote color={tone.color} style={{ opacity: tone.opacity }}>
-          {line}
-          <IonButton
-            size="small"
-            fill="outline"
-            style={{ marginLeft: 8 }}
-            onClick={retryLocation}
-          >
-            Retry
-          </IonButton>
+        <IonNote
+          color={tone.color}
+          style={{
+            opacity: tone.opacity,
+            display: "inline-flex",
+            gap: 6,
+            alignItems: "center",
+          }}
+        >
+          <IonIcon icon={navigateOutline} aria-hidden="true" />
+          {ageText}
         </IonNote>
       );
     }
 
     if (geo.status === "error") {
       return (
-        <IonNote color="warning" style={{ opacity: 0.78 }}>
-          {maxMiles} mi · location off
-          <IonButton
-            size="small"
-            fill="outline"
-            style={{ marginLeft: 8 }}
-            onClick={retryLocation}
-          >
-            Retry
-          </IonButton>
+        <IonNote
+          color="warning"
+          style={{
+            opacity: 0.78,
+            display: "inline-flex",
+            gap: 6,
+            alignItems: "center",
+          }}
+        >
+          <IonIcon icon={navigateOutline} aria-hidden="true" />
+          off
         </IonNote>
       );
     }
 
     return null;
-  }, [geo, maxMiles, retryLocation]);
-
+  }, [geo]);
   /** ---------------------------
    *  Render
    *  --------------------------- */
@@ -492,13 +546,17 @@ export default function Snow() {
                     const heroDateISO =
                       selectedDay?.dateISO ?? decision.window?.startISO ?? null;
 
-                    const headline = heroDateISO
-                      ? `Best for ${dayOfWeekShort(heroDateISO)} (${fmtMonthDay(heroDateISO)})`
+                    const heroDayShort = heroDateISO
+                      ? dayOfWeekShort(heroDateISO)
+                      : "—";
+
+                    const heroCaption = heroDateISO
+                      ? `Best on ${fmtMonthDay(heroDateISO)}`
                       : decision.window?.label
-                        ? `${decision.window.label} (${fmtMonthDay(
+                        ? `${decision.window.label} ${fmtMonthDay(
                             decision.window.startISO,
-                          )}–${fmtMonthDay(decision.window.endISO)})`
-                        : "Best for —";
+                          )}–${fmtMonthDay(decision.window.endISO)}`
+                        : "Best on —";
 
                     const primaryPick =
                       selectedDay?.topPick ??
@@ -549,13 +607,6 @@ export default function Snow() {
                           .startsWith("drive"),
                       ) ?? "";
 
-                    const snowSignalText =
-                      whyBullets.find((b) =>
-                        String(b ?? "")
-                          .toLowerCase()
-                          .startsWith("snow signal:"),
-                      ) ?? "";
-
                     const wxText =
                       whyBullets.find((b) => {
                         const t = String(b ?? "");
@@ -564,39 +615,21 @@ export default function Snow() {
                         );
                       }) ?? "";
 
-                    function parseSnowSignalInches(s: string) {
-                      const m = String(s ?? "").match(/(\d+(\.\d+)?)"/);
-                      return m ? `${m[1]}"` : "—";
-                    }
-
-                    function parseDriveCompact(s: string) {
+                    function parseDriveTimeOnly(s: string) {
                       const t = String(s ?? "");
-                      const mi =
-                        t.match(/(\d+(\.\d+)?)\s*mi/i)?.[1] ??
-                        t.match(/(\d+(\.\d+)?)\s*miles?/i)?.[1] ??
-                        null;
 
-                      const h =
-                        t.match(/(\d+)\s*h/i)?.[1] ??
-                        t.match(/(\d+):(\d{2})/)?.[1] ??
-                        null;
-                      const m =
-                        t.match(/(\d+)\s*m/i)?.[1] ??
-                        t.match(/(\d+):(\d{2})/)?.[2] ??
-                        null;
+                      // time formats: 1h 12m, 1h12m, 72m, 1:12
+                      const hhmm = t.match(/(\d+):(\d{2})/);
+                      const hFromText =
+                        t.match(/(\d+)\s*h/i)?.[1] ?? (hhmm ? hhmm[1] : null);
+                      const mFromText =
+                        t.match(/(\d+)\s*m/i)?.[1] ?? (hhmm ? hhmm[2] : null);
 
-                      const time =
-                        h && m
-                          ? `${h}h${m}m`
-                          : h
-                            ? `${h}h`
-                            : m
-                              ? `${m}m`
-                              : null;
-
-                      if (!mi && !time) return null;
-                      if (mi && time) return `${mi} mi • ${time}`;
-                      return mi ? `${mi} mi` : `${time}`;
+                      if (hFromText && mFromText)
+                        return `${hFromText}h${mFromText}m`;
+                      if (hFromText) return `${hFromText}h`;
+                      if (mFromText) return `${mFromText}m`;
+                      return null;
                     }
 
                     function parseWxCompact(s: string) {
@@ -621,10 +654,9 @@ export default function Snow() {
                       return { temp, wind: wind ? `${wind}mph` : "—" };
                     }
 
-                    const snowSignalIn = parseSnowSignalInches(snowSignalText);
                     const { temp: tempF, wind: windMph } =
                       parseWxCompact(wxText);
-                    const driveCompact = parseDriveCompact(driveText);
+                    const driveTime = parseDriveTimeOnly(driveText);
 
                     const updatedCompact =
                       provenanceLine && provenanceLine.length
@@ -644,183 +676,229 @@ export default function Snow() {
                       <div
                         style={{
                           borderRadius: 18,
-                          padding: 14,
+                          padding: 16,
                           background: "#ffffff08",
                           border: "1px solid #ffffff1f",
                           display: "flex",
                           flexDirection: "column",
                           gap: 10,
+                          textAlign: "center",
                         }}
                       >
+                        {/* Header: caption + big day-of-week + label badge */}
+                        {/* Header: caption + big day-of-week + label badge (true centered) */}
                         <div
                           style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            alignItems: "baseline",
-                            gap: 12,
+                            display: "grid",
+                            gridTemplateColumns: "1fr auto 1fr",
+                            alignItems: "start",
+                            columnGap: 12,
                           }}
                         >
+                          {/* left spacer column */}
+                          <div />
+
+                          {/* center stack */}
                           <div
                             style={{
-                              fontSize: 12,
-                              fontWeight: 800,
-                              opacity: 0.7,
+                              display: "flex",
+                              flexDirection: "column",
+                              alignItems: "center",
+                              gap: 2,
+                              minWidth: 0,
                             }}
                           >
-                            {headline}
+                            <div
+                              style={{
+                                fontSize: 12,
+                                fontWeight: 800,
+                                opacity: 0.6,
+                                lineHeight: 1.1,
+                              }}
+                            >
+                              {heroCaption}
+                            </div>
+                            <div
+                              style={{
+                                fontSize: 34,
+                                fontWeight: 950,
+                                lineHeight: 1.05,
+                              }}
+                            >
+                              {heroDayShort}
+                            </div>
                           </div>
 
+                          {/* right badge column */}
                           <div
                             style={{
-                              display: "inline-flex",
-                              padding: "6px 10px",
-                              borderRadius: 999,
-                              background: overallColors.bg,
-                              border: `1px solid ${overallColors.border}`,
-                              fontWeight: 900,
-                              fontSize: 12,
-                              letterSpacing: 0.2,
-                              whiteSpace: "nowrap",
+                              display: "flex",
+                              justifyContent: "flex-end",
                             }}
                           >
-                            {labelPhrase(overall)}
+                            <div
+                              style={{
+                                display: "inline-flex",
+                                padding: "6px 10px",
+                                borderRadius: 999,
+                                background: overallColors.bg,
+                                border: `1px solid ${overallColors.border}`,
+                                fontWeight: 900,
+                                fontSize: 12,
+                                letterSpacing: 0.2,
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {labelPhrase(overall)}
+                            </div>
                           </div>
                         </div>
 
+                        {/* Resort: secondary */}
                         <div
                           style={{
-                            fontSize: 26,
-                            fontWeight: 950,
+                            fontSize: 22,
+                            fontWeight: 900,
                             lineHeight: 1.1,
-                            marginTop: 2,
+                            marginTop: -2,
                           }}
                         >
                           {primaryPick?.resortName ?? "—"}
                         </div>
 
-                        <div
-                          style={{ display: "flex", gap: 10, flexWrap: "wrap" }}
-                        >
-                          {driveCompact ? (
-                            <div
-                              style={{
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: 6,
-                                fontSize: 12,
-                                fontWeight: 800,
-                                opacity: 0.72,
-                              }}
-                            >
-                              <IonIcon icon={carOutline} aria-hidden="true" />
-                              <span>{driveCompact}</span>
-                            </div>
-                          ) : null}
+                        {/* Score: “temperature-sized” */}
+                        <div style={{ marginTop: -2 }}>
+                          <div
+                            style={{
+                              fontSize: 54,
+                              fontWeight: 950,
+                              lineHeight: 1,
+                            }}
+                          >
+                            {Number.isFinite(primaryPick?.score)
+                              ? Math.round(primaryPick!.score)
+                              : "—"}
+                          </div>
+                          <div
+                            style={{
+                              fontSize: 12,
+                              fontWeight: 900,
+                              opacity: 0.55,
+                              marginTop: 4,
+                            }}
+                          >
+                            Snow Score
+                          </div>
+                        </div>
 
+                        {/* Drive time only (omit entirely if unavailable) */}
+                        {driveTime ? (
                           <div
                             style={{
                               fontSize: 12,
                               fontWeight: 800,
-                              opacity: 0.62,
+                              opacity: 0.55,
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 6,
+                              justifyContent: "center",
                             }}
                           >
-                            {geoCompact}
+                            <IonIcon icon={carOutline} aria-hidden="true" />
+                            <span>{driveTime}</span>
                           </div>
-
-                          {updatedCompact ? (
-                            <div style={{ fontSize: 11, opacity: 0.45 }}>
-                              {updatedCompact}
-                            </div>
-                          ) : null}
-                        </div>
-
+                        ) : null}
+                        {/* Details list (Recent / Next 24 / Temp / Wind) */}
                         <div
                           style={{
-                            display: "grid",
-                            gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+                            display: "inline-flex",
+                            flexDirection: "column",
                             gap: 8,
-                            marginTop: 4,
+                            alignItems: "center",
+                            marginTop: 6,
                           }}
                         >
-                          {[
-                            {
-                              icon: snowOutline,
-                              top: snowSignalIn,
-                              bottom: "Snow",
-                            },
-                            {
-                              icon: refreshOutline,
-                              top: primaryResortId
-                                ? `${
-                                    (snowById[primaryResortId]?.next24In ??
-                                      null) != null
-                                      ? Number(
-                                          snowById[primaryResortId]!.next24In,
-                                        ).toFixed(1)
-                                      : "—"
-                                  }"`
-                                : "—",
-                              bottom: "Next 24",
-                            },
-                            {
-                              icon: partlySunnyOutline,
-                              top: tempF,
-                              bottom: "Temp",
-                            },
-                            {
-                              icon: partlySunnyOutline,
-                              top: windMph,
-                              bottom: "Wind",
-                            },
-                          ].map((p, idx) => (
-                            <div
-                              key={idx}
-                              style={{
-                                borderRadius: 14,
-                                padding: "10px 10px",
-                                border: "1px solid #ffffff1a",
-                                background: "#00000010",
-                                display: "flex",
-                                flexDirection: "column",
-                                gap: 4,
-                                minHeight: 56,
-                              }}
-                            >
-                              <div
-                                style={{
-                                  display: "flex",
-                                  alignItems: "center",
-                                  gap: 8,
-                                }}
-                              >
-                                <IonIcon icon={p.icon} aria-hidden="true" />
-                                <div
-                                  style={{
-                                    fontSize: 16,
-                                    fontWeight: 950,
-                                    lineHeight: 1,
-                                  }}
-                                >
-                                  {p.top}
-                                </div>
-                              </div>
-                              <div
-                                style={{
-                                  fontSize: 11,
-                                  fontWeight: 900,
-                                  opacity: 0.55,
-                                }}
-                              >
-                                {p.bottom}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 10,
+                              fontSize: 16,
+                              fontWeight: 900,
+                            }}
+                          >
+                            <span>
+                              {primaryResortId
+                                ? fmtRecentSnowHero(
+                                    (snowById[primaryResortId] as any)
+                                      ?.last48In,
+                                  )
+                                : "No recent snow"}
+                            </span>
+                          </div>
 
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 10,
+                              fontSize: 16,
+                              fontWeight: 900,
+                            }}
+                          >
+                            <IonIcon icon={refreshOutline} aria-hidden="true" />
+                            <span>
+                              {primaryResortId
+                                ? fmtNext24SnowHero(
+                                    snowById[primaryResortId]?.next24In,
+                                  )
+                                : "— next 24"}
+                            </span>
+                          </div>
+
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 10,
+                              fontSize: 16,
+                              fontWeight: 900,
+                            }}
+                          >
+                            <IonIcon
+                              icon={thermometerOutline}
+                              aria-hidden="true"
+                            />
+                            <span>{tempF}</span>
+                          </div>
+
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 10,
+                              fontSize: 16,
+                              fontWeight: 900,
+                            }}
+                          >
+                            <IonIcon icon={leafOutline} aria-hidden="true" />
+                            <span>{windMph}</span>
+                          </div>
+                        </div>
+                        {/* Provenance (quiet) */}
+                        {updatedCompact ? (
+                          <div
+                            style={{ fontSize: 11, opacity: 0.4, marginTop: 2 }}
+                          >
+                            {updatedCompact}
+                          </div>
+                        ) : null}
+
+                        {/* Backup (quiet) */}
                         {decision.backup ? (
                           <div
                             style={{
-                              marginTop: 2,
+                              marginTop: 6,
                               fontSize: 12,
                               opacity: 0.65,
                             }}
@@ -1017,8 +1095,7 @@ export default function Snow() {
                   flexWrap: "wrap",
                 }}
               >
-                <strong>Filter</strong>
-
+                {/* Radius selector (button opens modal) */}
                 <IonButton
                   size="small"
                   fill="outline"
@@ -1027,18 +1104,22 @@ export default function Snow() {
                   title="Change drive radius"
                   style={{ height: 28 }}
                 >
-                  <IonBadge style={{ marginRight: 6 }}>{maxMiles} mi</IonBadge>
-                  <span style={{ fontSize: 12, opacity: 0.85 }}>Radius</span>
+                  <IonBadge>{maxMiles} mi</IonBadge>
                 </IonButton>
 
+                {/* Location freshness (🧭 age/now only) */}
                 {headerNote}
 
+                {/* Update location */}
                 <IonButton
                   size="small"
                   fill="outline"
-                  onClick={refreshSnowSoft}
+                  onClick={retryLocation}
+                  aria-label="Update location"
+                  title="Update location"
+                  style={{ height: 28 }}
                 >
-                  Refresh data
+                  Update location
                 </IonButton>
               </div>
             </IonLabel>
