@@ -6,34 +6,45 @@ import {
   IonItem,
   IonLabel,
   IonList,
+  IonModal,
   IonNote,
   IonPage,
+  IonRange,
+  IonRefresher,
+  IonRefresherContent,
   IonSkeletonText,
   IonTitle,
   IonToolbar,
 } from "@ionic/react";
-import { useEffect, useMemo, useState } from "react";
+import { IonIcon } from "@ionic/react";
+import type { RefresherEventDetail } from "@ionic/core";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import "./Snow.css";
+
 import { RESORTS } from "../data/resorts";
 import { haversineMiles } from "../lib/geo";
-import { snowService } from "../services/snow";
-import type { SnowMetrics } from "../services/snow/types";
 import { todayISO } from "../lib/date";
 import { buildWeekPlan } from "../lib/weekPlanner";
 import { buildWeekPlanViewModel } from "../lib/weekPlannerViewModel";
-import { IonIcon } from "@ionic/react";
+import { snowService } from "../services/snow";
+import type { SnowMetrics } from "../services/snow/types";
+
+import { resolveGeo, clearGeoCache } from "../services/geo/location";
+import type { GeoReady as GeoReadyFromSvc } from "../services/geo/location";
+
 import {
   snowOutline,
   partlySunnyOutline,
   carOutline,
-  navigateOutline,
-  shareOutline,
   refreshOutline,
 } from "ionicons/icons";
-import { resolveGeo, clearGeoCache } from "../services/geo/location";
-import type { GeoReady as GeoReadyFromSvc } from "../services/geo/location";
 
-const MAX_MILES = 110;
+/** ---------------------------
+ *  Constants / helpers (module scope)
+ *  --------------------------- */
+const DEFAULT_MAX_MILES = 110;
+const LS_MAX_MILES = "srs_max_miles_v1";
+const LS_SNOW_CACHE = "srs_snow_cache_v1";
 
 const FALLBACK_DRIVE_MILES: Record<string, number> = {
   patspeak: 47,
@@ -55,6 +66,20 @@ type MetricMeta = {
   sourceUrl?: string;
   updatedAt?: string;
 };
+
+function clampMiles(n: number) {
+  const v = Math.round(n / 10) * 10;
+  return Math.max(10, Math.min(300, v));
+}
+
+function readMaxMiles(): number {
+  try {
+    const raw = localStorage.getItem(LS_MAX_MILES);
+    const n = raw ? Number(raw) : NaN;
+    if (Number.isFinite(n) && n > 0) return clampMiles(n);
+  } catch {}
+  return DEFAULT_MAX_MILES;
+}
 
 function addDaysISO(startISO: string, days: number): string {
   const d = new Date(startISO + "T00:00:00");
@@ -97,11 +122,27 @@ function metricTooltip(
 }
 
 export default function Snow() {
-  // geo
+  /** ---------------------------
+   *  State
+   *  --------------------------- */
   const [geo, setGeo] = useState<GeoUi>({ status: "idle" });
 
+  const [snowById, setSnowById] = useState<Record<string, SnowMetrics>>({});
+  const [snowLoading, setSnowLoading] = useState<boolean>(true);
+
+  const [maxMiles, setMaxMiles] = useState<number>(() => readMaxMiles());
+  const [radiusOpen, setRadiusOpen] = useState(false);
+
+  // Bump this to force a refetch without reload.
+  const [refreshNonce, setRefreshNonce] = useState(0);
+  const [geoNonce, setGeoNonce] = useState(0);
+
+  /** ---------------------------
+   *  Geo resolve (soft)
+   *  --------------------------- */
   useEffect(() => {
     let alive = true;
+
     (async () => {
       setGeo({ status: "loading" });
       try {
@@ -117,33 +158,36 @@ export default function Snow() {
         });
       }
     })();
+
     return () => {
       alive = false;
     };
+  }, [geoNonce]);
+
+  const retryLocation = useCallback(() => {
+    clearGeoCache();
+    setGeoNonce((x) => x + 1);
   }, []);
 
-  function retryLocation() {
-    clearGeoCache();
-    window.location.reload();
-  }
-
-  // snow data loaded via service abstraction
-  const [snowById, setSnowById] = useState<Record<string, SnowMetrics>>({});
-  const [snowLoading, setSnowLoading] = useState<boolean>(true);
-
-  function refreshSnow() {
+  /** ---------------------------
+   *  Radius persistence
+   *  --------------------------- */
+  function persistMaxMiles(n: number) {
+    const v = clampMiles(n);
+    setMaxMiles(v);
     try {
-      localStorage.removeItem("srs_snow_cache_v1");
-      // keep geo cache clearing explicit via Retry
-    } catch {
-      // ignore
-    }
-    window.location.reload();
+      localStorage.setItem(LS_MAX_MILES, String(v));
+    } catch {}
+    // radius change already triggers refetch via resortsForFetch dependency,
+    // but bumping refreshNonce makes intent explicit and fixes “same deps” edge cases.
+    setRefreshNonce((x) => x + 1);
   }
 
+  /** ---------------------------
+   *  Resorts + miles (single boundary)
+   *  --------------------------- */
   const resortsWithMiles = useMemo(() => {
     if (geo.status !== "ready") {
-      // Location off/loading/error → show all resorts without miles.
       return RESORTS.map((r) => ({ resort: r, miles: null as number | null }));
     }
 
@@ -152,15 +196,22 @@ export default function Snow() {
       resort: r,
       miles: haversineMiles(here, { lat: r.lat, lon: r.lon }),
     }))
-      .filter((x) => x.miles <= MAX_MILES)
-      .sort((a, b) => (a.miles ?? 0) - (b.miles ?? 0));
-  }, [geo]);
+      .filter((x) => (x.miles ?? Number.POSITIVE_INFINITY) <= maxMiles)
+      .sort(
+        (a, b) =>
+          (a.miles ?? 0) - (b.miles ?? 0) ||
+          String(a.resort?.id ?? "").localeCompare(String(b.resort?.id ?? "")),
+      );
+  }, [geo, maxMiles]);
+
+  const resortsForFetch = useMemo(
+    () => resortsWithMiles.map((x) => x.resort),
+    [resortsWithMiles],
+  );
+  const resortsInRadius = resortsForFetch;
 
   const driveMilesById = useMemo(() => {
-    // Start with fallbacks so the planner still works when location is off.
     const m: Record<string, number> = { ...FALLBACK_DRIVE_MILES };
-
-    // If we have computed miles, override fallbacks with real values.
     for (const row of resortsWithMiles) {
       const id = row.resort.id;
       const miles = row.miles;
@@ -168,23 +219,28 @@ export default function Snow() {
         typeof id === "string" &&
         typeof miles === "number" &&
         Number.isFinite(miles) &&
-        miles > 0
+        miles >= 0
       ) {
         m[id] = miles;
       }
     }
-
     return m;
   }, [resortsWithMiles]);
 
-  const resortsForFetch = useMemo(
-    () => resortsWithMiles.map((x) => x.resort),
-    [resortsWithMiles],
-  );
+  /** ---------------------------
+   *  Snow fetch (single path)
+   *  --------------------------- */
+  const refreshSnowSoft = useCallback(async () => {
+    // clear cache then refetch (no reload)
+    try {
+      localStorage.removeItem(LS_SNOW_CACHE);
+    } catch {}
+    setRefreshNonce((x) => x + 1);
+  }, []);
 
-  // Load snow data via service abstraction
   useEffect(() => {
     let alive = true;
+
     (async () => {
       setSnowLoading(true);
       try {
@@ -197,15 +253,19 @@ export default function Snow() {
         if (alive) setSnowLoading(false);
       }
     })();
+
     return () => {
       alive = false;
     };
-  }, [resortsForFetch]);
+  }, [resortsForFetch, refreshNonce]);
 
-  // Planner
+  /** ---------------------------
+   *  Planner + VM
+   *  --------------------------- */
   const outlook = useMemo(() => {
     if (snowLoading) return null;
     if (!snowById || Object.keys(snowById).length === 0) return null;
+
     return buildWeekPlan({
       resorts: RESORTS,
       metricsByResortId: snowById,
@@ -220,12 +280,14 @@ export default function Snow() {
     if (!outlook) return null;
     return buildWeekPlanViewModel({
       outlook,
-      resorts: RESORTS,
+      resorts: resortsInRadius,
       driveMilesByResortId: driveMilesById,
     });
-  }, [outlook, driveMilesById]);
+  }, [outlook, driveMilesById, resortsInRadius]);
 
-  // --- Week timeline selection (v0) ---
+  /** ---------------------------
+   *  Timeline selection
+   *  --------------------------- */
   const [selectedDateISO, setSelectedDateISO] = useState<string | null>(null);
 
   useEffect(() => {
@@ -254,14 +316,15 @@ export default function Snow() {
   useEffect(() => {
     if (selectedDateISO) return;
     if (!weekVM?.days?.length) return;
-
     const best = weekVM.days.reduce((a, b) =>
       b.topPick.score > a.topPick.score ? b : a,
     );
-
     setSelectedDateISO(best.dateISO);
   }, [weekVM, selectedDateISO]);
 
+  /** ---------------------------
+   *  Formatting helpers
+   *  --------------------------- */
   function dayOfWeekShort(dateISO: string): string {
     const [y, m, d] = dateISO.split("-").map(Number);
     const dt = new Date(y, (m ?? 1) - 1, d ?? 1);
@@ -300,28 +363,66 @@ export default function Snow() {
     return "Skip";
   }
 
-  function sameResortCopy(overall: "green" | "yellow" | "red") {
-    if (overall === "green") return "Go both days";
-    if (overall === "yellow") return "Same resort both days";
-    return "Stick to one resort (if you go)";
-  }
-
+  /** ---------------------------
+   *  Header note (calm, non-debug)
+   *  --------------------------- */
   const headerNote = useMemo(() => {
-    if (geo.status === "loading")
-      return <IonNote>Getting your location…</IonNote>;
+    function formatAgeRounded(ms: number): string {
+      const totalMinutes = Math.max(0, Math.round(ms / 60000));
+      if (totalMinutes < 60) return `${totalMinutes}m ago`;
+
+      const totalHours = totalMinutes / 60;
+      if (totalHours < 6) {
+        const rounded15 = Math.round(totalMinutes / 15) * 15;
+        const h = Math.floor(rounded15 / 60);
+        const m = rounded15 % 60;
+        if (m === 0) return `${h}h ago`;
+        return `${h}h ${m}m ago`;
+      }
+      if (totalHours < 48) {
+        const h = Math.round(totalHours);
+        return `${h}h ago`;
+      }
+      const days = Math.floor(totalHours / 24);
+      const remHours = Math.round(totalHours - days * 24);
+      if (remHours <= 1) return `${days}d ago`;
+      return `${days}d ${remHours}h ago`;
+    }
+
+    function ageTone(ageMs: number) {
+      const mins = ageMs / 60000;
+      if (mins <= 30) return { opacity: 0.9, color: undefined as any };
+      if (mins <= 6 * 60) return { opacity: 0.82, color: undefined as any };
+      if (mins <= 24 * 60) return { opacity: 0.72, color: undefined as any };
+      return { opacity: 0.72, color: "warning" as const };
+    }
+
+    if (geo.status === "loading") {
+      return <IonNote style={{ opacity: 0.8 }}>Getting location…</IonNote>;
+    }
 
     if (geo.status === "ready") {
-      const src =
+      const ageMs = Date.now() - geo.at;
+      const sourceLabel =
         geo.source === "current"
           ? "current"
           : geo.source === "cached"
             ? "saved"
             : "default";
-      const ageMin = Math.round((Date.now() - geo.at) / 60000);
+
+      const tone =
+        geo.source === "current"
+          ? { opacity: 0.9, color: undefined }
+          : ageTone(ageMs);
+
+      const line =
+        geo.source === "current"
+          ? `${maxMiles} mi · current`
+          : `${maxMiles} mi · ${sourceLabel} ${formatAgeRounded(ageMs)}`;
+
       return (
-        <IonNote>
-          Location: using {src}
-          {geo.source !== "current" ? ` (${ageMin}m old)` : ""}
+        <IonNote color={tone.color} style={{ opacity: tone.opacity }}>
+          {line}
           <IonButton
             size="small"
             fill="outline"
@@ -336,8 +437,8 @@ export default function Snow() {
 
     if (geo.status === "error") {
       return (
-        <IonNote color="warning">
-          Location off: {geo.message} (showing all resorts)
+        <IonNote color="warning" style={{ opacity: 0.78 }}>
+          {maxMiles} mi · location off
           <IonButton
             size="small"
             fill="outline"
@@ -351,8 +452,11 @@ export default function Snow() {
     }
 
     return null;
-  }, [geo]);
+  }, [geo, maxMiles, retryLocation]);
 
+  /** ---------------------------
+   *  Render
+   *  --------------------------- */
   return (
     <IonPage>
       <IonHeader>
@@ -362,6 +466,19 @@ export default function Snow() {
       </IonHeader>
 
       <IonContent>
+        <IonRefresher
+          slot="fixed"
+          onIonRefresh={async (ev: CustomEvent<RefresherEventDetail>) => {
+            try {
+              await refreshSnowSoft();
+            } finally {
+              ev.detail.complete();
+            }
+          }}
+        >
+          <IonRefresherContent />
+        </IonRefresher>
+
         {weekVM && (
           <IonList inset={true}>
             <IonItem>
@@ -391,12 +508,14 @@ export default function Snow() {
 
                     const next24Updated =
                       (primaryResortId
-                        ? snowById[primaryResortId]?.next24Meta?.updatedAt
+                        ? (snowById[primaryResortId] as any)?.next24Meta
+                            ?.updatedAt
                         : null) ?? null;
 
                     const last48Updated =
                       (primaryResortId
-                        ? snowById[primaryResortId]?.last48Meta?.updatedAt
+                        ? (snowById[primaryResortId] as any)?.last48Meta
+                            ?.updatedAt
                         : null) ?? null;
 
                     const provenanceLine =
@@ -413,7 +532,7 @@ export default function Snow() {
                             .join(" · ")
                         : null;
 
-                    const overall = primaryPick?.label ?? "skip";
+                    const overall = primaryPick?.label ?? "red";
                     const overallColors = labelColors(overall);
 
                     const whyBullets =
@@ -423,112 +542,108 @@ export default function Snow() {
                           ? selectedDay.bullets
                           : (decision.why ?? [])) ?? [];
 
-                    function renderWhyRow(b: string, i: number) {
-                      const text = String(b ?? "");
+                    const driveText =
+                      whyBullets.find((b) =>
+                        String(b ?? "")
+                          .toLowerCase()
+                          .startsWith("drive"),
+                      ) ?? "";
 
-                      if (text.toLowerCase().startsWith("snow signal:")) {
-                        const match = text.match(/(\d+(\.\d+)?")/);
-                        const snowValue = match ? match[1] : "";
+                    const snowSignalText =
+                      whyBullets.find((b) =>
+                        String(b ?? "")
+                          .toLowerCase()
+                          .startsWith("snow signal:"),
+                      ) ?? "";
 
-                        const winStartISO = heroDateISO!;
-                        const winEndISO = addDaysISO(heroDateISO!, 1);
-
-                        const winLabel = `${dayOfWeekShort(winStartISO)} → ${dayOfWeekShort(
-                          winEndISO,
-                        )}`;
-
+                    const wxText =
+                      whyBullets.find((b) => {
+                        const t = String(b ?? "");
                         return (
-                          <div
-                            key={i}
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 10,
-                              fontSize: 14,
-                              opacity: 0.95,
-                            }}
-                          >
-                            <IonIcon
-                              icon={snowOutline}
-                              style={{ fontSize: 18, opacity: 0.9 }}
-                              aria-hidden="true"
-                            />
-                            <span style={{ fontWeight: 800 }}>
-                              {snowValue || "—"}
-                            </span>
-                            <span style={{ opacity: 0.75 }}>{winLabel}</span>
-                          </div>
+                          t.includes("°F") || t.toLowerCase().includes("wind")
                         );
-                      }
+                      }) ?? "";
 
-                      if (
-                        text.includes("°F") ||
-                        text.toLowerCase().includes("wind")
-                      ) {
-                        return (
-                          <div
-                            key={i}
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 10,
-                              fontSize: 14,
-                              opacity: 0.92,
-                            }}
-                          >
-                            <IonIcon
-                              icon={partlySunnyOutline}
-                              style={{ fontSize: 18, opacity: 0.85 }}
-                              aria-hidden="true"
-                            />
-                            <span>{text}</span>
-                          </div>
-                        );
-                      }
-
-                      if (text.toLowerCase().startsWith("drive")) {
-                        return (
-                          <div
-                            key={i}
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 10,
-                              fontSize: 14,
-                              opacity: 0.92,
-                            }}
-                          >
-                            <IonIcon
-                              icon={carOutline}
-                              style={{ fontSize: 18, opacity: 0.85 }}
-                              aria-hidden="true"
-                            />
-                            <span>{text}</span>
-                          </div>
-                        );
-                      }
-
-                      return (
-                        <div
-                          key={i}
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 10,
-                            fontSize: 14,
-                            opacity: 0.92,
-                          }}
-                        >
-                          <span style={{ width: 18 }} />
-                          <span>{text}</span>
-                        </div>
-                      );
+                    function parseSnowSignalInches(s: string) {
+                      const m = String(s ?? "").match(/(\d+(\.\d+)?)"/);
+                      return m ? `${m[1]}"` : "—";
                     }
+
+                    function parseDriveCompact(s: string) {
+                      const t = String(s ?? "");
+                      const mi =
+                        t.match(/(\d+(\.\d+)?)\s*mi/i)?.[1] ??
+                        t.match(/(\d+(\.\d+)?)\s*miles?/i)?.[1] ??
+                        null;
+
+                      const h =
+                        t.match(/(\d+)\s*h/i)?.[1] ??
+                        t.match(/(\d+):(\d{2})/)?.[1] ??
+                        null;
+                      const m =
+                        t.match(/(\d+)\s*m/i)?.[1] ??
+                        t.match(/(\d+):(\d{2})/)?.[2] ??
+                        null;
+
+                      const time =
+                        h && m
+                          ? `${h}h${m}m`
+                          : h
+                            ? `${h}h`
+                            : m
+                              ? `${m}m`
+                              : null;
+
+                      if (!mi && !time) return null;
+                      if (mi && time) return `${mi} mi • ${time}`;
+                      return mi ? `${mi} mi` : `${time}`;
+                    }
+
+                    function parseWxCompact(s: string) {
+                      const t = String(s ?? "");
+                      const tempRange =
+                        t.match(/(\-?\d+)\s*[–-]\s*(\-?\d+)\s*°F/i) ??
+                        t.match(/(\-?\d+)\s*to\s*(\-?\d+)\s*°F/i);
+
+                      const tempSingle = t.match(/(\-?\d+)\s*°F/i);
+
+                      const temp = tempRange
+                        ? `${tempRange[1]}–${tempRange[2]}°`
+                        : tempSingle
+                          ? `${tempSingle[1]}°`
+                          : "—";
+
+                      const wind =
+                        t.match(/wind[^0-9]*(\d+)\s*mph/i)?.[1] ??
+                        t.match(/(\d+)\s*mph/i)?.[1] ??
+                        null;
+
+                      return { temp, wind: wind ? `${wind}mph` : "—" };
+                    }
+
+                    const snowSignalIn = parseSnowSignalInches(snowSignalText);
+                    const { temp: tempF, wind: windMph } =
+                      parseWxCompact(wxText);
+                    const driveCompact = parseDriveCompact(driveText);
+
+                    const updatedCompact =
+                      provenanceLine && provenanceLine.length
+                        ? provenanceLine
+                        : null;
+
+                    const geoCompact =
+                      geo.status === "ready"
+                        ? geo.source === "cached"
+                          ? "📍 Saved location"
+                          : "📍 Current location"
+                        : geo.status === "loading"
+                          ? "📍 Locating…"
+                          : "📍 Location off";
 
                     return (
                       <div
                         style={{
-                          borderRadius: 16,
+                          borderRadius: 18,
                           padding: 14,
                           background: "#ffffff08",
                           border: "1px solid #ffffff1f",
@@ -541,51 +656,18 @@ export default function Snow() {
                           style={{
                             display: "flex",
                             justifyContent: "space-between",
+                            alignItems: "baseline",
                             gap: 12,
                           }}
                         >
                           <div
                             style={{
-                              fontSize: 13,
+                              fontSize: 12,
                               fontWeight: 800,
-                              opacity: 0.85,
+                              opacity: 0.7,
                             }}
                           >
-                            Feb vacation plan
-                          </div>
-                          <div style={{ fontSize: 12, opacity: 0.75 }}>
                             {headline}
-                          </div>
-                        </div>
-
-                        {provenanceLine ? (
-                          <div
-                            style={{
-                              fontSize: 11,
-                              opacity: 0.55,
-                              marginTop: -6,
-                            }}
-                          >
-                            {provenanceLine}
-                          </div>
-                        ) : null}
-
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "flex-start",
-                            justifyContent: "space-between",
-                            gap: 12,
-                          }}
-                        >
-                          <div
-                            style={{
-                              fontSize: 24,
-                              fontWeight: 900,
-                              lineHeight: 1.1,
-                            }}
-                          >
-                            {primaryPick?.resortName ?? "—"}
                           </div>
 
                           <div
@@ -607,33 +689,140 @@ export default function Snow() {
 
                         <div
                           style={{
-                            fontSize: 14,
-                            fontWeight: 700,
-                            opacity: 0.75,
+                            fontSize: 26,
+                            fontWeight: 950,
+                            lineHeight: 1.1,
+                            marginTop: 2,
                           }}
                         >
-                          {sameResortCopy(overall)}
+                          {primaryPick?.resortName ?? "—"}
                         </div>
 
-                        {whyBullets.length ? (
+                        <div
+                          style={{ display: "flex", gap: 10, flexWrap: "wrap" }}
+                        >
+                          {driveCompact ? (
+                            <div
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 6,
+                                fontSize: 12,
+                                fontWeight: 800,
+                                opacity: 0.72,
+                              }}
+                            >
+                              <IonIcon icon={carOutline} aria-hidden="true" />
+                              <span>{driveCompact}</span>
+                            </div>
+                          ) : null}
+
                           <div
                             style={{
-                              display: "flex",
-                              flexDirection: "column",
-                              gap: 6,
-                              marginTop: 2,
+                              fontSize: 12,
+                              fontWeight: 800,
+                              opacity: 0.62,
                             }}
                           >
-                            {whyBullets.slice(0, 3).map(renderWhyRow)}
+                            {geoCompact}
                           </div>
-                        ) : null}
+
+                          {updatedCompact ? (
+                            <div style={{ fontSize: 11, opacity: 0.45 }}>
+                              {updatedCompact}
+                            </div>
+                          ) : null}
+                        </div>
+
+                        <div
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+                            gap: 8,
+                            marginTop: 4,
+                          }}
+                        >
+                          {[
+                            {
+                              icon: snowOutline,
+                              top: snowSignalIn,
+                              bottom: "Snow",
+                            },
+                            {
+                              icon: refreshOutline,
+                              top: primaryResortId
+                                ? `${
+                                    (snowById[primaryResortId]?.next24In ??
+                                      null) != null
+                                      ? Number(
+                                          snowById[primaryResortId]!.next24In,
+                                        ).toFixed(1)
+                                      : "—"
+                                  }"`
+                                : "—",
+                              bottom: "Next 24",
+                            },
+                            {
+                              icon: partlySunnyOutline,
+                              top: tempF,
+                              bottom: "Temp",
+                            },
+                            {
+                              icon: partlySunnyOutline,
+                              top: windMph,
+                              bottom: "Wind",
+                            },
+                          ].map((p, idx) => (
+                            <div
+                              key={idx}
+                              style={{
+                                borderRadius: 14,
+                                padding: "10px 10px",
+                                border: "1px solid #ffffff1a",
+                                background: "#00000010",
+                                display: "flex",
+                                flexDirection: "column",
+                                gap: 4,
+                                minHeight: 56,
+                              }}
+                            >
+                              <div
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 8,
+                                }}
+                              >
+                                <IonIcon icon={p.icon} aria-hidden="true" />
+                                <div
+                                  style={{
+                                    fontSize: 16,
+                                    fontWeight: 950,
+                                    lineHeight: 1,
+                                  }}
+                                >
+                                  {p.top}
+                                </div>
+                              </div>
+                              <div
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: 900,
+                                  opacity: 0.55,
+                                }}
+                              >
+                                {p.bottom}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
 
                         {decision.backup ? (
                           <div
                             style={{
                               marginTop: 2,
                               fontSize: 12,
-                              opacity: 0.75,
+                              opacity: 0.65,
                             }}
                           >
                             Backup:{" "}
@@ -641,58 +830,17 @@ export default function Snow() {
                               {decision.backup.resortName}
                             </strong>
                             {decision.backup.reason ? (
-                              <span style={{ opacity: 0.85 }}>
+                              <span style={{ opacity: 0.8 }}>
                                 {" "}
                                 — {decision.backup.reason}
                               </span>
                             ) : null}
                           </div>
                         ) : null}
-
-                        <div
-                          style={{
-                            display: "flex",
-                            gap: 10,
-                            marginTop: 4,
-                            justifyContent: "flex-end",
-                          }}
-                        >
-                          <IonButton
-                            fill="outline"
-                            size="small"
-                            aria-label="Directions"
-                            title="Directions"
-                          >
-                            <IonIcon
-                              icon={navigateOutline}
-                              aria-hidden="true"
-                            />
-                          </IonButton>
-
-                          <IonButton
-                            fill="outline"
-                            size="small"
-                            aria-label="Share plan"
-                            title="Share plan"
-                          >
-                            <IonIcon icon={shareOutline} aria-hidden="true" />
-                          </IonButton>
-
-                          <IonButton
-                            fill="outline"
-                            size="small"
-                            aria-label="Refresh data"
-                            title="Refresh data"
-                            onClick={refreshSnow}
-                          >
-                            <IonIcon icon={refreshOutline} aria-hidden="true" />
-                          </IonButton>
-                        </div>
                       </div>
                     );
                   })()}
 
-                  {/* Timeline strip (v0) */}
                   <div
                     style={{
                       display: "flex",
@@ -748,13 +896,6 @@ export default function Snow() {
                             minWidth: 140,
                             opacity: lowConfidence ? 0.9 : 1,
                           }}
-                          title={[
-                            d.dateISO,
-                            d.topPick?.resortName ?? "(missing resort)",
-                            Number.isFinite(d.topPick?.score)
-                              ? `score ${d.topPick.score}`
-                              : "(missing score)",
-                          ].join(" • ")}
                           aria-label={`Select ${d.dateISO}`}
                         >
                           <div
@@ -793,14 +934,6 @@ export default function Snow() {
                                       border: "1px solid #ffffff22",
                                       background: "#ffffff08",
                                     }}
-                                    title={`Missing: ${
-                                      [
-                                        resortMissing ? "resort" : null,
-                                        scoreMissing ? "score" : null,
-                                      ]
-                                        .filter(Boolean)
-                                        .join(", ") || "inputs"
-                                    }`}
                                     aria-label="Low confidence"
                                   >
                                     ⚠
@@ -867,11 +1000,6 @@ export default function Snow() {
                       );
                     })}
                   </div>
-
-                  {/* GPT_REGION:WEEK_SUMMARY:START */}
-                  {/* (your existing WEEK_SUMMARY block can remain as-is if you want;
-                      this replacement focuses on restoring compilation + geo + snow grid) */}
-                  {/* GPT_REGION:WEEK_SUMMARY:END */}
                 </div>
               </IonLabel>
             </IonItem>
@@ -890,17 +1018,25 @@ export default function Snow() {
                 }}
               >
                 <strong>Filter</strong>
-                <IonBadge>{MAX_MILES} miles</IonBadge>
-                {headerNote}
+
                 <IonButton
                   size="small"
                   fill="outline"
-                  onClick={() => {
-                    try {
-                      localStorage.removeItem("srs_snow_cache_v1");
-                    } catch {}
-                    window.location.reload();
-                  }}
+                  onClick={() => setRadiusOpen(true)}
+                  aria-label="Change drive radius"
+                  title="Change drive radius"
+                  style={{ height: 28 }}
+                >
+                  <IonBadge style={{ marginRight: 6 }}>{maxMiles} mi</IonBadge>
+                  <span style={{ fontSize: 12, opacity: 0.85 }}>Radius</span>
+                </IonButton>
+
+                {headerNote}
+
+                <IonButton
+                  size="small"
+                  fill="outline"
+                  onClick={refreshSnowSoft}
                 >
                   Refresh data
                 </IonButton>
@@ -908,6 +1044,52 @@ export default function Snow() {
             </IonLabel>
           </IonItem>
         </IonList>
+
+        <IonModal isOpen={radiusOpen} onDidDismiss={() => setRadiusOpen(false)}>
+          <IonHeader>
+            <IonToolbar>
+              <IonTitle>Drive radius</IonTitle>
+              <IonButton
+                slot="end"
+                fill="clear"
+                onClick={() => setRadiusOpen(false)}
+              >
+                Done
+              </IonButton>
+            </IonToolbar>
+          </IonHeader>
+
+          <IonContent className="ion-padding">
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{ fontWeight: 800, fontSize: 16 }}>{maxMiles} mi</div>
+
+              <IonRange
+                min={10}
+                max={300}
+                step={10}
+                snaps={true}
+                pin={true}
+                value={maxMiles}
+                onIonChange={(e) => {
+                  const v = Number(e.detail.value);
+                  if (Number.isFinite(v)) persistMaxMiles(v);
+                }}
+              />
+
+              <div style={{ fontSize: 13, opacity: 0.75 }}>
+                Adjust in 10-mile increments. This immediately refilters resorts
+                and refetches snow only for in-radius resorts.
+              </div>
+
+              <IonButton
+                fill="outline"
+                onClick={() => persistMaxMiles(DEFAULT_MAX_MILES)}
+              >
+                Reset to {DEFAULT_MAX_MILES} mi
+              </IonButton>
+            </div>
+          </IonContent>
+        </IonModal>
 
         <IonList inset={true}>
           <IonItem lines="full">
@@ -969,7 +1151,7 @@ export default function Snow() {
                 const updatedPretty = (() => {
                   if (!updatedRaw) return "—";
                   try {
-                    return shortTimeStamp(updatedRaw);
+                    return shortTimeStamp(updatedRaw) ?? "—";
                   } catch {
                     return String(updatedRaw);
                   }
