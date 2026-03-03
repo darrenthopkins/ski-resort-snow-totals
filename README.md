@@ -234,3 +234,7 @@ All behavioral changes must be reflected in documentation.
 If scoring or selection changes, update:
 
 👉 **[SCORING_AND_SELECTION.md](docs/SCORING_AND_SELECTION.md)**  
+
+## License
+
+This project is licensed under the MIT License — see the [LICENSE](docs/LICENSE.md) file for details.
