@@ -12,21 +12,25 @@ export type Resort = {
 
 export type ResortProviderIds = {
   id: string;
-
-  // Prefer explicit URL when necessary
   onTheSnowUrl?: string;
-
-  // Optional stable slug
   onTheSnowSlug?: string;
 };
 
 /**
  * Provider IDs
- * Only include resorts you actively support scraping.
+ * Include every resort you actively support scraping.
  * If a resort has no provider mapping, it simply won’t be fetched.
  */
 export const RESORT_PROVIDER_IDS: ResortProviderIds[] = [
+  // --- New Hampshire ---
   { id: "waterville", onTheSnowSlug: "waterville-valley" },
+  { id: "loon", onTheSnowSlug: "loon-mountain" },
+  { id: "cannon", onTheSnowSlug: "cannon-mountain" },
+  { id: "brettonwoods", onTheSnowSlug: "bretton-woods" },
+  { id: "wildcat", onTheSnowSlug: "wildcat-mountain" },
+  { id: "attitash", onTheSnowSlug: "attitash" },
+  { id: "cranmore", onTheSnowSlug: "cranmore" },
+  { id: "blacknh", onTheSnowSlug: "black-mountain-nh" },
   { id: "gunstock", onTheSnowSlug: "gunstock" },
   { id: "sunapee", onTheSnowSlug: "mount-sunapee" },
   {
@@ -35,16 +39,30 @@ export const RESORT_PROVIDER_IDS: ResortProviderIds[] = [
       "https://www.onthesnow.com/new-hampshire/ragged-mountain-resort/skireport",
   },
   { id: "patspeak", onTheSnowSlug: "pats-peak" },
-  { id: "loon", onTheSnowSlug: "loon-mountain" },
-  { id: "cannon", onTheSnowSlug: "cannon-mountain" },
-  { id: "brettonwoods", onTheSnowSlug: "bretton-woods" },
-  { id: "wildcat", onTheSnowSlug: "wildcat-mountain" },
-  { id: "attitash", onTheSnowSlug: "attitash" },
-  { id: "cranmore", onTheSnowSlug: "cranmore" },
-  { id: "blacknh", onTheSnowSlug: "black-mountain-nh" },
   { id: "kingpine", onTheSnowSlug: "king-pine" },
   { id: "tenney", onTheSnowSlug: "tenney-mountain" },
-  { id: "mcintyre", onTheSnowSlug: "mcintyre-ski-area" },
+  // { id: "mcintyre", onTheSnowSlug: "mcintyre-ski-area" },
+
+  // --- Maine ---
+  { id: "sundayriver", onTheSnowSlug: "sunday-river" },
+  { id: "sugarloaf", onTheSnowSlug: "sugarloaf" },
+  { id: "shawneepeak", onTheSnowSlug: "pleasant-mountain" },
+
+  // --- Vermont ---
+  { id: "killington", onTheSnowSlug: "killington-resort" },
+  { id: "okemo", onTheSnowSlug: "okemo-mountain-resort" },
+  { id: "stratton", onTheSnowSlug: "stratton-mountain" },
+  { id: "stowe", onTheSnowSlug: "stowe-mountain-resort" },
+  { id: "jaypeak", onTheSnowSlug: "jay-peak" },
+
+  // --- Massachusetts ---
+  { id: "wachusett", onTheSnowSlug: "wachusett-mountain-ski-area" },
+  { id: "berkshireeast", onTheSnowSlug: "berkshire-east" },
+  { id: "nashoba", onTheSnowSlug: "nashoba-valley" },
+  { id: "skibradford", onTheSnowSlug: "bradford-ski-area" },
+
+  // --- New York ---
+  { id: "whiteface", onTheSnowSlug: "whiteface-mountain-resort" },
 ];
 
 /**
@@ -88,7 +106,13 @@ export const RESORTS: Resort[] = [
     lat: 44.2598,
     lon: -71.225,
   },
-  { id: "attitash", name: "Attitash", state: "NH", lat: 44.0829, lon: -71.229 },
+  {
+    id: "attitash",
+    name: "Attitash",
+    state: "NH",
+    lat: 44.0829,
+    lon: -71.229,
+  },
   {
     id: "cranmore",
     name: "Cranmore",
@@ -145,15 +169,15 @@ export const RESORTS: Resort[] = [
     lat: 43.7587,
     lon: -71.6885,
   },
-  {
-    id: "mcintyre",
-    name: "McIntyre",
-    state: "NH",
-    lat: 42.9943,
-    lon: -71.4936,
-  },
+  // {
+  //   id: "mcintyre",
+  //   name: "McIntyre",
+  //   state: "NH",
+  //   lat: 42.9943,
+  //   lon: -71.4936,
+  // },
 
-  // --- Maine (likely within 110 depending on anchor) ---
+  // --- Maine ---
   {
     id: "sundayriver",
     name: "Sunday River",
@@ -176,7 +200,7 @@ export const RESORTS: Resort[] = [
     lon: -70.8227,
   },
 
-  // --- Vermont (borderline 110 depending on origin) ---
+  // --- Vermont ---
   {
     id: "killington",
     name: "Killington",
@@ -184,13 +208,33 @@ export const RESORTS: Resort[] = [
     lat: 43.6045,
     lon: -72.8208,
   },
-  { id: "okemo", name: "Okemo", state: "VT", lat: 43.4019, lon: -72.7176 },
+  {
+    id: "okemo",
+    name: "Okemo",
+    state: "VT",
+    lat: 43.4019,
+    lon: -72.7176,
+  },
   {
     id: "stratton",
     name: "Stratton",
     state: "VT",
     lat: 43.1142,
     lon: -72.9107,
+  },
+  {
+    id: "stowe",
+    name: "Stowe",
+    state: "VT",
+    lat: 44.5314,
+    lon: -72.7803,
+  },
+  {
+    id: "jaypeak",
+    name: "Jay Peak",
+    state: "VT",
+    lat: 44.9369,
+    lon: -72.5042,
   },
 
   // --- Massachusetts ---
@@ -208,8 +252,22 @@ export const RESORTS: Resort[] = [
     lat: 42.6201,
     lon: -72.9195,
   },
+  {
+    id: "nashoba",
+    name: "Nashoba Valley",
+    state: "MA",
+    lat: 42.5215,
+    lon: -71.4581,
+  },
+  {
+    id: "skibradford",
+    name: "Ski Bradford",
+    state: "MA",
+    lat: 42.7437,
+    lon: -71.1057,
+  },
 
-  // --- New York (may be >110; filter handles it) ---
+  // --- New York ---
   {
     id: "whiteface",
     name: "Whiteface",

@@ -1,5 +1,8 @@
+//src/lib/weekPlannerViewModel.ts
+
 import type { Resort } from "../data/resorts";
 import type { DayFacts } from "./confidence";
+import type { SnowMetrics } from "../services/snow/types";
 
 type Label = "green" | "yellow" | "red";
 
@@ -10,6 +13,12 @@ type PickVM = {
   label: Label;
   facts?: DayFacts;
   bullets: string[];
+
+  // Selected-day context for hero / badges
+  previous48Label?: string;
+  previous48In?: number | null;
+  next24Label?: string;
+  next24In?: number | null;
 };
 
 export type WeekPlanViewModel = {
@@ -203,7 +212,33 @@ function windowLabel(startISO: string, endISO: string) {
     ? dow(startISO)
     : `${dow(startISO)}–${dow(endISO)}`;
 }
+function addDaysISO(dateISO: string, days: number): string {
+  const [y, m, d] = dateISO.split("-").map(Number);
+  const dt = new Date(y, (m ?? 1) - 1, d ?? 1);
+  dt.setDate(dt.getDate() + days);
 
+  const yy = dt.getFullYear();
+  const mm = String(dt.getMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
+}
+
+function dowShort(dateISO: string): string {
+  const [y, m, d] = dateISO.split("-").map(Number);
+  const dt = new Date(y, (m ?? 1) - 1, d ?? 1);
+  return dt.toLocaleDateString(undefined, { weekday: "short" });
+}
+
+function previous48LabelForSelectedDay(dateISO: string): string {
+  const a = addDaysISO(dateISO, -2);
+  const b = addDaysISO(dateISO, -1);
+  return `${dowShort(a)}-${dowShort(b)}`;
+}
+
+function next24LabelForSelectedDay(dateISO: string): string {
+  const next = addDaysISO(dateISO, 1);
+  return dowShort(next);
+}
 function truthBulletsFromFacts(facts?: DayFacts): string[] {
   if (!facts) return [];
 
@@ -247,6 +282,146 @@ function cloneFactsWithDriveMiles(params: {
 
   return cloned;
 }
+function selectedDaySnowContext(params: {
+  dateISO: string;
+  snow?: SnowMetrics;
+  facts?: DayFacts;
+}) {
+  const { dateISO, snow } = params;
+
+  const prev2ISO = addDaysISO(dateISO, -2);
+  const prev1ISO = addDaysISO(dateISO, -1);
+  const next1ISO = addDaysISO(dateISO, 1);
+
+  const prev2Label = dowShort(prev2ISO);
+  const prev1Label = dowShort(prev1ISO);
+
+  const recentByIso = new Map<string, number>();
+  const recentByLabel = new Map<string, number>();
+  const forecastByIso = new Map<string, number>();
+
+  const recentDaily = snow?.recentSnowDaily as any;
+  const weekDaily = snow?.weekSnowDaily as any;
+
+  // Support array shape:
+  //   [{ isoDate, label, inches }]
+  // and object shape:
+  //   { Wed: 4, Thu: 2 }
+  //   { "2026-03-11": 4, "2026-03-12": 2 }
+  if (Array.isArray(recentDaily)) {
+    for (const d of recentDaily) {
+      const iso =
+        typeof d?.isoDate === "string" ? String(d.isoDate).slice(0, 10) : "";
+      const label = typeof d?.label === "string" ? String(d.label) : "";
+      const inches = toFiniteNumber(d?.inches);
+      if (iso && inches != null) recentByIso.set(iso, inches);
+      if (label && inches != null) recentByLabel.set(label, inches);
+    }
+  } else if (recentDaily && typeof recentDaily === "object") {
+    for (const [key, value] of Object.entries(recentDaily)) {
+      const inches = toFiniteNumber(value);
+      if (inches == null) continue;
+
+      if (isIsoDateKey(key)) {
+        recentByIso.set(key.slice(0, 10), inches);
+      } else {
+        recentByLabel.set(normalizeDowKey(key), inches);
+      }
+    }
+  }
+
+  // Support array shape:
+  //   [{ isoDate/dateISO, inches/snowIn/snow/value }]
+  // and object shape:
+  //   { "2026-03-13": 3, "2026-03-14": 0 }
+  //   { Fri: 3, Sat: 0 }
+  if (Array.isArray(weekDaily)) {
+    for (const d of weekDaily) {
+      const iso =
+        typeof d?.isoDate === "string"
+          ? String(d.isoDate).slice(0, 10)
+          : typeof d?.dateISO === "string"
+          ? String(d.dateISO).slice(0, 10)
+          : "";
+      const inches = toFiniteNumber(
+        d?.inches ?? d?.snowIn ?? d?.snow ?? d?.value,
+      );
+      if (iso && inches != null) forecastByIso.set(iso, inches);
+    }
+  } else if (weekDaily && typeof weekDaily === "object") {
+    for (const [key, value] of Object.entries(weekDaily)) {
+      const inches = toFiniteNumber(value);
+      if (inches == null) continue;
+
+      if (isIsoDateKey(key)) {
+        forecastByIso.set(key.slice(0, 10), inches);
+      }
+    }
+  }
+
+  const measuredPrevious48FromIso =
+    (recentByIso.get(prev2ISO) ?? 0) + (recentByIso.get(prev1ISO) ?? 0);
+
+  const hasMeasuredPrevious48FromIso =
+    recentByIso.has(prev2ISO) || recentByIso.has(prev1ISO);
+
+  const measuredPrevious48FromLabel =
+    (recentByLabel.get(prev2Label) ?? 0) + (recentByLabel.get(prev1Label) ?? 0);
+
+  const hasMeasuredPrevious48FromLabel =
+    recentByLabel.has(prev2Label) || recentByLabel.has(prev1Label);
+
+  const hasForecastNext24 = forecastByIso.has(next1ISO);
+  const forecastNext24 = forecastByIso.get(next1ISO) ?? 0;
+
+  return {
+    previous48Label: previous48LabelForSelectedDay(dateISO),
+    previous48In: hasMeasuredPrevious48FromIso
+      ? measuredPrevious48FromIso
+      : hasMeasuredPrevious48FromLabel
+      ? measuredPrevious48FromLabel
+      : null,
+    next24Label: next24LabelForSelectedDay(dateISO),
+    next24In: hasForecastNext24 ? forecastNext24 : null,
+  };
+}
+
+function toFiniteNumber(value: unknown): number | null {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+
+    const match = trimmed.match(/-?\d+(?:\.\d+)?/);
+    if (!match) return null;
+
+    const n = Number(match[0]);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  return null;
+}
+
+function isIsoDateKey(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}/.test(value);
+}
+
+function normalizeDowKey(value: string): string {
+  const s = value.trim().toLowerCase();
+
+  if (s.startsWith("mon")) return "Mon";
+  if (s.startsWith("tue")) return "Tue";
+  if (s.startsWith("wed")) return "Wed";
+  if (s.startsWith("thu")) return "Thu";
+  if (s.startsWith("fri")) return "Fri";
+  if (s.startsWith("sat")) return "Sat";
+  if (s.startsWith("sun")) return "Sun";
+
+  return value.trim();
+}
 
 function bulletsForResult(params: {
   resortId: string;
@@ -287,8 +462,9 @@ export function buildWeekPlanViewModel(params: {
 
   resorts: Resort[];
   driveMilesByResortId?: Record<string, number>;
+  snowByResortId?: Record<string, SnowMetrics>;
 }): WeekPlanViewModel {
-  const { outlook, resorts, driveMilesByResortId } = params;
+  const { outlook, resorts, driveMilesByResortId, snowByResortId } = params;
 
   if (!outlook || !Array.isArray(outlook.days) || !outlook.bestDay) {
     throw new Error("Invalid outlook input to buildWeekPlanViewModel");
@@ -317,6 +493,13 @@ export function buildWeekPlanViewModel(params: {
               result: x?.result,
               driveMilesByResortId,
             });
+
+            const snowContext = selectedDaySnowContext({
+              dateISO: String(d.dateISO),
+              snow: snowByResortId?.[resortId],
+              facts: factsAndBullets.facts,
+            });
+
             return {
               resortId,
               resortName: String(x.resortName),
@@ -324,9 +507,19 @@ export function buildWeekPlanViewModel(params: {
               label: normalizeLabel(x.result?.label),
               facts: factsAndBullets.facts,
               bullets: factsAndBullets.bullets,
+              previous48Label: snowContext.previous48Label,
+              previous48In: snowContext.previous48In,
+              next24Label: snowContext.next24Label,
+              next24In: snowContext.next24In,
             };
           })
       : [];
+
+    const topPickSnowContext = selectedDaySnowContext({
+      dateISO: String(d.dateISO),
+      snow: snowByResortId?.[bestResortId],
+      facts: bestFactsAndBullets.facts,
+    });
 
     const topPick: PickVM = {
       resortId: bestResortId,
@@ -335,6 +528,10 @@ export function buildWeekPlanViewModel(params: {
       label: bestLabel,
       facts: bestFactsAndBullets.facts,
       bullets: bestFactsAndBullets.bullets,
+      previous48Label: topPickSnowContext.previous48Label,
+      previous48In: topPickSnowContext.previous48In,
+      next24Label: topPickSnowContext.next24Label,
+      next24In: topPickSnowContext.next24In,
     };
 
     return {
@@ -363,7 +560,9 @@ export function buildWeekPlanViewModel(params: {
 
   const narrative =
     `Best day: ${bestISO}. ` +
-    `Top pick: ${String(outlook.bestDay.best?.resortName ?? summaryBestOverall.name)}. ` +
+    `Top pick: ${String(
+      outlook.bestDay.best?.resortName ?? summaryBestOverall.name,
+    )}. ` +
     `Backup: ${backup.name}.`;
 
   const picks = (topPicks.length ? topPicks : pickTopTwoDayPicks(daysVM)).slice(

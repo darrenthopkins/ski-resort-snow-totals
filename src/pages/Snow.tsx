@@ -1,3 +1,5 @@
+//src/pages/Snow.tsx
+
 import {
   IonBadge,
   IonButton,
@@ -300,7 +302,7 @@ export default function Snow() {
     if (!snowById || Object.keys(snowById).length === 0) return null;
 
     return buildWeekPlan({
-      resorts: RESORTS,
+      resorts: resortsForFetch,
       metricsByResortId: snowById,
       startDateISO: todayISO(),
       days: 7,
@@ -308,15 +310,15 @@ export default function Snow() {
       driveMilesByResortId: driveMilesById,
     });
   }, [snowLoading, snowById, driveMilesById]);
-
   const weekVM = useMemo(() => {
     if (!outlook) return null;
     return buildWeekPlanViewModel({
       outlook,
       resorts: resortsInRadius,
       driveMilesByResortId: driveMilesById,
+      snowByResortId: snowById,
     });
-  }, [outlook, driveMilesById, resortsInRadius]);
+  }, [outlook, driveMilesById, resortsInRadius, snowById]);
 
   /** ---------------------------
    *  Timeline selection
@@ -412,6 +414,110 @@ export default function Snow() {
     if (!Number.isFinite(n)) return "— next 24";
     if (n <= 0) return "No snow next 24";
     return `${n.toFixed(1)}" next 24`;
+  }
+  function fmtSelectedPrevious48Hero(
+    label?: string | null,
+    inches?: number | null,
+  ): string {
+    if (label && typeof inches === "number" && Number.isFinite(inches)) {
+      return `${label}: ${inches.toFixed(inches >= 10 ? 0 : 1)}"`;
+    }
+    if (label) return `${label}: —`;
+    return "Recent: —";
+  }
+
+  function fmtSelectedNext24Hero(
+    label?: string | null,
+    inches?: number | null,
+  ): string {
+    if (label && typeof inches === "number" && Number.isFinite(inches)) {
+      return `${label}: ${inches.toFixed(inches >= 10 ? 0 : 1)}"`;
+    }
+    if (label) return `${label}: —`;
+    return "Next 24: —";
+  }
+
+  function medalTone(label: "Gold" | "Silver" | "Bronze") {
+    if (label === "Gold") {
+      return {
+        medal: "🥇",
+        border: "#C9A227",
+        bg: "linear-gradient(180deg, #4b3a12 0%, #2b220c 100%)",
+        chipBg: "#6b5317",
+      };
+    }
+    if (label === "Silver") {
+      return {
+        medal: "🥈",
+        border: "#9AA3AD",
+        bg: "linear-gradient(180deg, #38414a 0%, #22272d 100%)",
+        chipBg: "#4d5863",
+      };
+    }
+    return {
+      medal: "🥉",
+      border: "#A56A43",
+      bg: "linear-gradient(180deg, #4a2f22 0%, #2b1d15 100%)",
+      chipBg: "#6b4430",
+    };
+  }
+
+  function extractMedalWxDetails(bullets?: string[] | null) {
+    const wxText =
+      bullets?.find((b) => {
+        const t = String(b ?? "");
+        return t.includes("°F") || t.toLowerCase().includes("wind");
+      }) ?? "";
+
+    const tempRange =
+      wxText.match(/(\-?\d+)\s*[–-]\s*(\-?\d+)\s*°F/i) ??
+      wxText.match(/(\-?\d+)\s*to\s*(\-?\d+)\s*°F/i);
+
+    const tempSingle = wxText.match(/(\-?\d+)\s*°F/i);
+
+    const wind =
+      wxText.match(/wind[^0-9]*(\d+)\s*mph/i)?.[1] ??
+      wxText.match(/(\d+)\s*mph/i)?.[1] ??
+      null;
+
+    const tempText = tempRange
+      ? `${tempRange[1]}–${tempRange[2]}°F`
+      : tempSingle
+      ? `${tempSingle[1]}°F`
+      : "—";
+
+    const windText = wind ? `≤ ${wind} mph` : "—";
+
+    return { tempText, windText };
+  }
+
+  function extractMedalDriveText(bullets?: string[] | null) {
+    const driveText =
+      bullets?.find((b) =>
+        String(b ?? "")
+          .toLowerCase()
+          .includes("drive"),
+      ) ?? "";
+
+    const miles = driveText.match(/(\d+)\s*mi/i)?.[1] ?? null;
+    return miles ? `~${miles} mi` : "—";
+  }
+
+  function buildMedalSnowLine(resortId?: string | null) {
+    if (!resortId) return "Recent — · Next —";
+
+    const snow = snowById[resortId];
+    if (!snow) return "Recent — · Next —";
+
+    const recent =
+      snow.last48In == null
+        ? "Recent —"
+        : `Recent ${snow.last48In.toFixed(1)}"`;
+
+    const next =
+      snow.next24In == null ? "Next —" : `Next ${snow.next24In.toFixed(1)}"`;
+
+    return `${recent} · ${next}`;
   }
   /** ---------------------------
    *  Header note (compass freshness only)
@@ -532,7 +638,6 @@ export default function Snow() {
         >
           <IonRefresherContent />
         </IonRefresher>
-
         {weekVM && (
           <IonList inset={true}>
             <IonItem>
@@ -553,16 +658,25 @@ export default function Snow() {
                     const heroCaption = heroDateISO
                       ? `Best on ${fmtMonthDay(heroDateISO)}`
                       : decision.window?.label
-                        ? `${decision.window.label} ${fmtMonthDay(
-                            decision.window.startISO,
-                          )}–${fmtMonthDay(decision.window.endISO)}`
-                        : "Best on —";
+                      ? `${decision.window.label} ${fmtMonthDay(
+                          decision.window.startISO,
+                        )}–${fmtMonthDay(decision.window.endISO)}`
+                      : "Best on —";
 
                     const primaryPick =
                       selectedDay?.topPick ??
                       weekVM.summary.decision.picks?.[0] ??
                       null;
+
                     const primaryResortId = primaryPick?.resortId ?? null;
+
+                    // console.log("[hero primary snow]", {
+                    //   primaryResortId,
+                    //   resortName: primaryPick?.resortName,
+                    //   selectedDateISO: selectedDay?.dateISO,
+                    //   snow: primaryResortId ? snowById[primaryResortId] : null,
+                    //   topPick: selectedDay?.topPick,
+                    // });
 
                     const next24Updated =
                       (primaryResortId
@@ -589,16 +703,57 @@ export default function Snow() {
                             .filter(Boolean)
                             .join(" · ")
                         : null;
-
                     const overall = primaryPick?.label ?? "red";
                     const overallColors = labelColors(overall);
+                    const selectedPrevious48Label =
+                      selectedDay?.topPick?.previous48Label ?? null;
 
+                    const selectedPrevious48In =
+                      typeof selectedDay?.topPick?.previous48In === "number"
+                        ? selectedDay.topPick.previous48In
+                        : null;
+
+                    const selectedNext24Label =
+                      selectedDay?.topPick?.next24Label ?? null;
+
+                    const selectedNext24In =
+                      typeof selectedDay?.topPick?.next24In === "number"
+                        ? selectedDay.topPick.next24In
+                        : primaryResortId && selectedNext24Label
+                        ? (() => {
+                            const daily = (snowById[primaryResortId] as any)
+                              ?.weekSnowDaily;
+                            if (!Array.isArray(daily)) return null;
+
+                            const row = daily.find((x: any) => {
+                              const iso = String(
+                                x?.isoDate ?? x?.dateISO ?? "",
+                              ).slice(0, 10);
+                              return (
+                                iso &&
+                                dayOfWeekShort(iso) === selectedNext24Label
+                              );
+                            });
+
+                            const raw =
+                              row?.inches ??
+                              row?.snowIn ??
+                              row?.snow ??
+                              row?.value ??
+                              null;
+
+                            return typeof raw === "number" &&
+                              Number.isFinite(raw)
+                              ? raw
+                              : null;
+                          })()
+                        : null;
                     const whyBullets =
                       (selectedDay?.topPick?.bullets?.length
                         ? selectedDay.topPick.bullets
                         : selectedDay?.bullets?.length
-                          ? selectedDay.bullets
-                          : (decision.why ?? [])) ?? [];
+                        ? selectedDay.bullets
+                        : decision.why ?? []) ?? [];
 
                     const driveText =
                       whyBullets.find((b) =>
@@ -615,21 +770,10 @@ export default function Snow() {
                         );
                       }) ?? "";
 
-                    function parseDriveTimeOnly(s: string) {
+                    function parseDriveMilesOnly(s: string) {
                       const t = String(s ?? "");
-
-                      // time formats: 1h 12m, 1h12m, 72m, 1:12
-                      const hhmm = t.match(/(\d+):(\d{2})/);
-                      const hFromText =
-                        t.match(/(\d+)\s*h/i)?.[1] ?? (hhmm ? hhmm[1] : null);
-                      const mFromText =
-                        t.match(/(\d+)\s*m/i)?.[1] ?? (hhmm ? hhmm[2] : null);
-
-                      if (hFromText && mFromText)
-                        return `${hFromText}h${mFromText}m`;
-                      if (hFromText) return `${hFromText}h`;
-                      if (mFromText) return `${mFromText}m`;
-                      return null;
+                      const miles = t.match(/(\d+)\s*mi/i)?.[1] ?? null;
+                      return miles ? `~${miles} mi` : null;
                     }
 
                     function parseWxCompact(s: string) {
@@ -643,8 +787,8 @@ export default function Snow() {
                       const temp = tempRange
                         ? `${tempRange[1]}–${tempRange[2]}°`
                         : tempSingle
-                          ? `${tempSingle[1]}°`
-                          : "—";
+                        ? `${tempSingle[1]}°`
+                        : "—";
 
                       const wind =
                         t.match(/wind[^0-9]*(\d+)\s*mph/i)?.[1] ??
@@ -656,7 +800,7 @@ export default function Snow() {
 
                     const { temp: tempF, wind: windMph } =
                       parseWxCompact(wxText);
-                    const driveTime = parseDriveTimeOnly(driveText);
+                    const driveMiles = parseDriveMilesOnly(driveText);
 
                     const updatedCompact =
                       provenanceLine && provenanceLine.length
@@ -669,8 +813,8 @@ export default function Snow() {
                           ? "📍 Saved location"
                           : "📍 Current location"
                         : geo.status === "loading"
-                          ? "📍 Locating…"
-                          : "📍 Location off";
+                        ? "📍 Locating…"
+                        : "📍 Location off";
 
                     return (
                       <div
@@ -685,7 +829,6 @@ export default function Snow() {
                           textAlign: "center",
                         }}
                       >
-                        {/* Header: caption + big day-of-week + label badge */}
                         {/* Header: caption + big day-of-week + label badge (true centered) */}
                         <div
                           style={{
@@ -791,8 +934,8 @@ export default function Snow() {
                           </div>
                         </div>
 
-                        {/* Drive time only (omit entirely if unavailable) */}
-                        {driveTime ? (
+                        {/* Drive miles only (omit entirely if unavailable) */}
+                        {driveMiles ? (
                           <div
                             style={{
                               fontSize: 12,
@@ -805,7 +948,7 @@ export default function Snow() {
                             }}
                           >
                             <IonIcon icon={carOutline} aria-hidden="true" />
-                            <span>{driveTime}</span>
+                            <span>{driveMiles}</span>
                           </div>
                         ) : null}
                         {/* Details list (Recent / Next 24 / Temp / Wind) */}
@@ -828,7 +971,14 @@ export default function Snow() {
                             }}
                           >
                             <span>
-                              {primaryResortId
+                              {selectedPrevious48Label
+                                ? typeof selectedPrevious48In === "number"
+                                  ? fmtSelectedPrevious48Hero(
+                                      selectedPrevious48Label,
+                                      selectedPrevious48In,
+                                    )
+                                  : `${selectedPrevious48Label}: —`
+                                : primaryResortId
                                 ? fmtRecentSnowHero(
                                     (snowById[primaryResortId] as any)
                                       ?.last48In,
@@ -848,7 +998,12 @@ export default function Snow() {
                           >
                             <IonIcon icon={refreshOutline} aria-hidden="true" />
                             <span>
-                              {primaryResortId
+                              {selectedNext24Label
+                                ? fmtSelectedNext24Hero(
+                                    selectedNext24Label,
+                                    selectedNext24In,
+                                  )
+                                : primaryResortId
                                 ? fmtNext24SnowHero(
                                     snowById[primaryResortId]?.next24In,
                                   )
@@ -949,8 +1104,8 @@ export default function Snow() {
                         d.label === "green"
                           ? "GO"
                           : d.label === "yellow"
-                            ? "WAIT"
-                            : "SKIP";
+                          ? "WAIT"
+                          : "SKIP";
 
                       const scoreMissing = !Number.isFinite(d.topPick?.score);
                       const resortMissing = !d.topPick?.resortName;
@@ -965,8 +1120,12 @@ export default function Snow() {
                             cursor: "pointer",
                             flex: "0 0 auto",
                             borderRadius: 14,
-                            border: `2px solid ${isSelected ? "#3BA9FF" : "transparent"}`,
-                            boxShadow: `0 0 0 1px ${isSelected ? "#3BA9FF" : "#ffffff22"}`,
+                            border: `2px solid ${
+                              isSelected ? "#3BA9FF" : "transparent"
+                            }`,
+                            boxShadow: `0 0 0 1px ${
+                              isSelected ? "#3BA9FF" : "#ffffff22"
+                            }`,
                             background: isSelected
                               ? "#ffffff10"
                               : "transparent",
@@ -1065,14 +1224,55 @@ export default function Snow() {
                               </div>
                             </div>
 
-                            {d.runnersUp?.length > 0 && (
-                              <div style={{ fontSize: 12, opacity: 0.75 }}>
-                                Next:{" "}
-                                {d.runnersUp
-                                  .map((r) => r.resortName)
-                                  .join(", ")}
+                            <div
+                              style={{
+                                marginTop: 2,
+                                fontSize: 12,
+                                opacity: 0.82,
+                                display: "flex",
+                                flexDirection: "column",
+                                gap: 4,
+                              }}
+                            >
+                              <div
+                                style={{
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  gap: 10,
+                                }}
+                              >
+                                <span style={{ opacity: 0.7 }}>Gold</span>
+                                <span style={{ fontWeight: 800 }}>
+                                  {d.topPick?.resortName ?? "—"}
+                                </span>
                               </div>
-                            )}
+
+                              <div
+                                style={{
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  gap: 10,
+                                }}
+                              >
+                                <span style={{ opacity: 0.7 }}>Silver</span>
+                                <span style={{ fontWeight: 700 }}>
+                                  {d.runnersUp?.[0]?.resortName ?? "—"}
+                                </span>
+                              </div>
+
+                              <div
+                                style={{
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  gap: 10,
+                                }}
+                              >
+                                <span style={{ opacity: 0.7 }}>Bronze</span>
+                                <span style={{ fontWeight: 700 }}>
+                                  {d.runnersUp?.[1]?.resortName ?? "—"}
+                                </span>
+                              </div>
+                            </div>
                           </div>
                         </button>
                       );
@@ -1083,7 +1283,182 @@ export default function Snow() {
             </IonItem>
           </IonList>
         )}
+        {/* Picks (selected day): medals + why */}
+        {weekVM && selectedDay && (
+          <IonList inset={true}>
+            <IonItem lines="none">
+              <IonLabel>
+                <div style={{ fontSize: 12, fontWeight: 900, opacity: 0.6 }}>
+                  Picks for {dayOfWeekShort(selectedDay.dateISO)}{" "}
+                  {fmtMonthDay(selectedDay.dateISO)}
+                </div>
+              </IonLabel>
+            </IonItem>
 
+            <IonItem lines="none">
+              <IonLabel>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                    gap: 12,
+                  }}
+                >
+                  {[
+                    { label: "Gold" as const, resort: selectedDay.topPick },
+                    {
+                      label: "Silver" as const,
+                      resort: selectedDay.runnersUp?.[0],
+                    },
+                    {
+                      label: "Bronze" as const,
+                      resort: selectedDay.runnersUp?.[1],
+                    },
+                  ].map(({ label, resort }) => {
+                    const tone = medalTone(label);
+                    const wx = extractMedalWxDetails(resort?.bullets);
+                    const drive = extractMedalDriveText(resort?.bullets);
+                    const snowLine = buildMedalSnowLine(resort?.resortId);
+
+                    return (
+                      <div
+                        key={label}
+                        style={{
+                          borderRadius: 16,
+                          padding: 12,
+                          border: `1px solid ${tone.border}`,
+                          background: tone.bg,
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 8,
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            gap: 10,
+                          }}
+                        >
+                          <div
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 8,
+                              fontWeight: 900,
+                              fontSize: 13,
+                              letterSpacing: 0.2,
+                            }}
+                          >
+                            <span style={{ fontSize: 18 }}>{tone.medal}</span>
+                            <span>{label}</span>
+                          </div>
+
+                          <div
+                            style={{
+                              display: "inline-flex",
+                              padding: "4px 8px",
+                              borderRadius: 999,
+                              background: tone.chipBg,
+                              border: "1px solid #ffffff22",
+                              fontSize: 12,
+                              fontWeight: 900,
+                              lineHeight: 1,
+                            }}
+                          >
+                            {Number.isFinite(resort?.score)
+                              ? Math.round(resort!.score)
+                              : "—"}
+                          </div>
+                        </div>
+
+                        <div
+                          style={{
+                            fontSize: 18,
+                            fontWeight: 950,
+                            lineHeight: 1.15,
+                          }}
+                        >
+                          {resort?.resortName ?? "—"}
+                        </div>
+
+                        <div
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 900,
+                            opacity: 0.65,
+                            textTransform: "uppercase",
+                            letterSpacing: 0.4,
+                          }}
+                        >
+                          Why
+                        </div>
+
+                        <div
+                          style={{
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: 6,
+                            fontSize: 13,
+                            opacity: 0.92,
+                          }}
+                        >
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 8,
+                            }}
+                          >
+                            <IonIcon icon={refreshOutline} aria-hidden="true" />
+                            <span>{snowLine}</span>
+                          </div>
+
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 8,
+                            }}
+                          >
+                            <IonIcon
+                              icon={thermometerOutline}
+                              aria-hidden="true"
+                            />
+                            <span>{wx.tempText}</span>
+                          </div>
+
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 8,
+                            }}
+                          >
+                            <IonIcon icon={leafOutline} aria-hidden="true" />
+                            <span>{wx.windText}</span>
+                          </div>
+
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 8,
+                            }}
+                          >
+                            <IonIcon icon={carOutline} aria-hidden="true" />
+                            <span>{drive}</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </IonLabel>
+            </IonItem>
+          </IonList>
+        )}{" "}
         <IonList inset={true}>
           <IonItem>
             <IonLabel>
@@ -1125,7 +1500,6 @@ export default function Snow() {
             </IonLabel>
           </IonItem>
         </IonList>
-
         <IonModal isOpen={radiusOpen} onDidDismiss={() => setRadiusOpen(false)}>
           <IonHeader>
             <IonToolbar>
@@ -1171,7 +1545,6 @@ export default function Snow() {
             </div>
           </IonContent>
         </IonModal>
-
         <IonList inset={true}>
           <IonItem lines="full">
             <IonLabel className="snowHeader">
