@@ -1,3 +1,5 @@
+//src/services/snow/nwsClient.ts
+
 import type { Resort } from "../../data/resorts";
 import { Capacitor } from "@capacitor/core";
 
@@ -136,14 +138,17 @@ async function fetchNwsJson<T>(url: string): Promise<T> {
   const resp = await fetch(proxied(url), {
     headers: { Accept: "application/geo+json" },
   });
-  console.log("[nws.fetch]", { url, proxied: proxied(url) });
+  // console.log("[nws.fetch]", { url, proxied: proxied(url) });
   if (!resp.ok) {
     const body = await resp.text().catch(() => "");
     throw new Error(
-      `NWS ${resp.status} ${resp.statusText} for ${url} :: ${body.slice(0, 200)}`,
+      `NWS ${resp.status} ${resp.statusText} for ${url} :: ${body.slice(
+        0,
+        200,
+      )}`,
     );
   }
-  console.log("[nws.fetch.resp]", { url, status: resp.status });
+  // console.log("[nws.fetch.resp]", { url, status: resp.status });
   return (await resp.json()) as T;
 }
 function fmtLocalDateISO(d: Date): string {
@@ -190,6 +195,19 @@ export async function getWeekSnowDaily(
   const values = layer?.values ?? [];
   const uom = layer?.uom;
 
+  // console.log("[nws.weekSnow.layer]", {
+  //   resortId: resort.id,
+  //   resortName: resort.name,
+  //   gridUrl,
+  //   updatedAt: gridJson?.properties?.updateTime ?? null,
+  //   uom: uom ?? null,
+  //   valueCount: values.length,
+  //   sample: values.slice(0, 8).map((v) => ({
+  //     validTime: v.validTime,
+  //     value: v.value,
+  //   })),
+  // });
+
   const now = new Date();
   const day0 = startOfLocalDay(now);
 
@@ -226,14 +244,25 @@ export async function getWeekSnowDaily(
   }
 
   const updatedAtISO = gridJson?.properties?.updateTime;
-  const updatedAt = updatedAtISO
-    ? new Date(updatedAtISO).toLocaleString()
-    : "NWS";
+  const updatedAt =
+    updatedAtISO && !Number.isNaN(new Date(updatedAtISO).getTime())
+      ? new Date(updatedAtISO).toISOString()
+      : new Date().toISOString();
+
+  // console.log("[nws.weekSnow.buckets]", {
+  //   resortId: resort.id,
+  //   resortName: resort.name,
+  //   daily: buckets.map((b) => ({
+  //     dateISO: b.dateISO,
+  //     total: Math.round(b.total * 10) / 10,
+  //     any: b.any,
+  //   })),
+  // });
 
   return {
     daily: buckets.map((b) => ({
       dateISO: b.dateISO,
-      inches: b.any ? Math.round(b.total * 10) / 10 : null,
+      inches: Math.round(b.total * 10) / 10,
     })),
     updatedAt,
     sourceUrl: gridUrl,

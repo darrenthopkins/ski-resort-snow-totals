@@ -1,5 +1,10 @@
 import type { Resort } from "../../data/resorts";
 
+export type SnowDayBucket = {
+  label: string;
+  inches: number;
+};
+
 export type SnowSource =
   | "nws"
   | "nohrsc"
@@ -20,6 +25,18 @@ export type MetricMeta = {
 
   // NEW: optional metadata
   provenance?: Record<string, unknown>;
+};
+
+export type RecentSnowDailyBucket = {
+  dateISO: string; // YYYY-MM-DD in resort/local calendar context
+  label: string; // e.g. "Wed"
+  inches: number;
+};
+
+export type WeekSnowDailyBucket = {
+  isoDate: string; // YYYY-MM-DD
+  label: string; // e.g. "Fri"
+  inches: number;
 };
 
 export type SnowMetrics = {
@@ -49,6 +66,7 @@ export type SnowMetrics = {
     maxWindMph: number | null;
   }>;
   weekWeatherMeta?: MetricMeta;
+  recentSnowDaily?: RecentSnowDailyBucket[];
 };
 
 export type GetSnowOptions = {
