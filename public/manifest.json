@@ -1,6 +1,6 @@
 {
-  "short_name": "Ionic App",
-  "name": "My Ionic App",
+  "short_name": "Lift",
+  "name": "Lift: Ski Day Planner",
   "icons": [
     {
       "src": "../icons/icon-48.webp",
