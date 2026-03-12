@@ -79,3 +79,4 @@ ios/App/Pods/
 ios/App/App.xcworkspace/
 ios/App/Podfile
 
+.env
