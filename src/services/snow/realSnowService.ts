@@ -96,16 +96,19 @@ function lsFlag(key: string): boolean {
   }
 }
 
-const DBG = () => lsFlag("srs_debug"); // master
-const DBG_VERBOSE = () => lsFlag("srs_debug_verbose");
 const NO_CACHE = () => lsFlag("srs_debug_nocache");
 
-function dlog(...args: any[]) {
-  if (DBG()) console.log(...args);
-}
-function dvlog(...args: any[]) {
-  if (DBG() && DBG_VERBOSE()) console.log(...args);
-}
+const SNOW_DEBUG = import.meta.env.VITE_SNOW_DEBUG === "true";
+
+const dlog = (...args: unknown[]) => {
+  if (!SNOW_DEBUG) return;
+  console.log(...args);
+};
+
+const dvlog = (...args: unknown[]) => {
+  if (!SNOW_DEBUG) return;
+  console.debug(...args);
+};
 
 const CACHE_MS = 10 * 60 * 1000; // 10 minutes
 const LS_KEY = "srs_snow_cache_v1";
@@ -216,7 +219,7 @@ export class RealSnowService implements SnowService {
         out[r.id] = await existing;
         continue;
       }
-      dlog("[snow] fresh fetch", { id: r.id, name: r.name });
+      // dlog("[snow] fresh fetch", { id: r.id, name: r.name });
       const p = (async (): Promise<SnowMetrics> => {
         try {
           const [

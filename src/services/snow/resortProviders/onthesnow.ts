@@ -19,6 +19,18 @@ const DAY_NAME_TO_INDEX: Record<string, number> = {
   sat: 6,
 };
 
+const SNOW_DEBUG = import.meta.env.VITE_SNOW_DEBUG === "true";
+
+const dlog = (...args: unknown[]) => {
+  if (!SNOW_DEBUG) return;
+  console.log(...args);
+};
+
+const dvlog = (...args: unknown[]) => {
+  if (!SNOW_DEBUG) return;
+  console.debug(...args);
+};
+
 function atLocalNoon(d = new Date()): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12, 0, 0, 0);
 }
@@ -200,7 +212,7 @@ function parseRecentSnowfallDaily(html: string): Record<string, number> | null {
   const nextData = extractNextData(html);
   if (nextData) {
     const fromJson = extractRecentSnowDailyFromNextData(nextData);
-    console.debug("[onthesnow recentDaily parser]", {
+    dvlog("[onthesnow recentDaily parser]", {
       stage: "nextData",
       found: fromJson,
       keys: fromJson ? Object.keys(fromJson) : [],
@@ -270,7 +282,7 @@ function parseRecentSnowfallDaily(html: string): Record<string, number> | null {
     result[labels[i]] = values[i];
   }
 
-  console.debug("[onthesnow recentDaily parser]", {
+  dvlog("[onthesnow recentDaily parser]", {
     stage: "htmlFallback",
     recentIdx,
     tokenCount: tokens.length,
@@ -581,7 +593,7 @@ function extractForecastSnowDailyFromNextData(
   if (Array.isArray(forecast) && forecast.length > 0) {
     const resortName = (root as any)?.props?.pageProps?.fullResort?.name ?? "";
     if (/loon/i.test(String(resortName))) {
-      console.log(
+      dvlog(
         "[ots raw fullResort.forecast loon]",
         forecast
           .slice(0, 7)
@@ -635,29 +647,24 @@ function parseForecastSnowDaily(
   days = 7,
 ): OnTheSnowForecastDailyBin[] {
   // 1) Best source: structured data in __NEXT_DATA__
-  // console.log("[onthesnow forecast parser] entered", {
-  //   htmlLen: html.length,
-  //   hasNextData: /__NEXT_DATA__/.test(html),
-  //   hasForecastedSnowText: /Forecasted\s+Snow/i.test(html),
-  // });
+  dvlog("[onthesnow forecast parser] entered", {
+    htmlLen: html.length,
+    hasNextData: /__NEXT_DATA__/.test(html),
+    hasForecastedSnowText: /Forecasted\s+Snow/i.test(html),
+  });
   const nextData = extractNextData(html);
 
-  // console.log("[onthesnow forecast parser] nextData check", {
-  //   hasNextDataObject: Boolean(nextData),
-  // });
-
   if (nextData) {
-    // console.log("[onthesnow forecast parser] trying nextData path");
     const fromJson = extractForecastSnowDailyFromNextData(
       nextData,
       days,
       new Date(),
     );
 
-    // // console.log("[onthesnow forecast parser] nextData result", {
-    //   binCount: fromJson.length,
-    //   bins: fromJson,
-    // });
+    dvlog("[onthesnow forecast parser] nextData result", {
+      binCount: fromJson.length,
+      bins: fromJson,
+    });
 
     if (fromJson.length > 0) {
       return fromJson;
@@ -670,11 +677,11 @@ function parseForecastSnowDaily(
       new Date(),
     );
 
-    // console.debug("[onthesnow forecast parser]", {
-    //   stage: "nextData",
-    //   binCount: fromJson.length,
-    //   bins: fromJson,
-    // });
+    dvlog("[onthesnow forecast parser]", {
+      stage: "nextData",
+      binCount: fromJson.length,
+      bins: fromJson,
+    });
 
     if (fromJson.length > 0) {
       return fromJson;
@@ -732,13 +739,6 @@ function parseForecastSnowDaily(
 
   const deduped = maxByDate(bins, days);
 
-  // console.debug("[onthesnow forecast parser]", {
-  //   stage: "htmlFallback",
-  //   forecastIdx,
-  //   lineCount: lines.length,
-  //   bins: deduped,
-  // });
-
   return deduped;
 }
 
@@ -751,24 +751,16 @@ export async function getOnTheSnowForecastDaily(
 
   try {
     const html = await fetchTextViaProxy(url);
-    // console.log("[onthesnow forecast] BEFORE parseForecastSnowDaily", {
-    //   resortId: resort.id,
-    //   resortName: resort.name,
-    // });
-    const bins = parseForecastSnowDaily(html, days);
-    // console.log("[onthesnow forecast] AFTER parseForecastSnowDaily", {
-    //   resortId: resort.id,
-    //   resortName: resort.name,
-    //   binCount: bins.length,
-    // });
 
-    // console.log("[ots forecast]", {
-    //   resortId: resort.id,
-    //   resortName: resort.name,
-    //   bins,
-    // });
+    const bins = parseForecastSnowDaily(html, days);
+
+    dvlog("[ots forecast]", {
+      resortId: resort.id,
+      resortName: resort.name,
+      bins,
+    });
     if (resort.id === "loon") {
-      console.log(
+      dvlog(
         "[ots forecast loon]",
         bins.map((b) => `${b.dateISO}:${b.inches}`).join(", "),
       );
@@ -785,16 +777,14 @@ export async function getOnTheSnowLast48(resort: Resort) {
 
   const url = resolveOnTheSnowUrl(resort);
 
-  // if (isDebugOnTheSnow()) {
-  //   console.log("[onthesnow] provider routing", {
-  //     resortId: resort.id,
-  //     resortName: resort.name,
-  //     hasProvider: Boolean(provider),
-  //     onTheSnowSlug: provider?.onTheSnowSlug ?? null,
-  //     onTheSnowUrl: provider?.onTheSnowUrl ?? null,
-  //     url,
-  //   });
-  // }
+  dvlog("[onthesnow] provider routing", {
+    resortId: resort.id,
+    resortName: resort.name,
+    hasProvider: Boolean(provider),
+    onTheSnowSlug: provider?.onTheSnowSlug ?? null,
+    onTheSnowUrl: provider?.onTheSnowUrl ?? null,
+    url,
+  });
 
   if (!url) return null;
 
@@ -802,14 +792,14 @@ export async function getOnTheSnowLast48(resort: Resort) {
 
   const recentDaily = parseRecentSnowfallDaily(html);
 
-  // console.log("[onthesnow recentDaily]", {
-  //   resortId: resort.id,
-  //   resortName: resort.name,
-  //   recentDaily,
-  // });
+  dvlog("[onthesnow recentDaily]", {
+    resortId: resort.id,
+    resortName: resort.name,
+    recentDaily,
+  });
 
   if (isDebugOnTheSnow() && resort.id === "loon") {
-    console.log("[onthesnow][loon] fetched html summary", {
+    dvlog("[onthesnow][loon] fetched html summary", {
       resortId: resort.id,
       resortName: resort.name,
       url,
@@ -821,56 +811,24 @@ export async function getOnTheSnowLast48(resort: Resort) {
   }
 
   // if (isDebugOnTheSnow()) {
-  //   const title = html.match(/<title>([^<]+)<\/title>/i)?.[1]?.trim() ?? null;
-  //   const hasNextData = /__NEXT_DATA__/.test(html);
-  //   const hasLoonText = /Loon Mountain/i.test(html);
-  //   const hasRecentSnowfall = /Recent Snowfall/i.test(html);
+  const title = html.match(/<title>([^<]+)<\/title>/i)?.[1]?.trim() ?? null;
+  const hasNextData = /__NEXT_DATA__/.test(html);
+  const hasLoonText = /Loon Mountain/i.test(html);
+  const hasRecentSnowfall = /Recent Snowfall/i.test(html);
 
-  //   // console.log("[onthesnow] fetched html summary", {
-  //   //   resortId: resort.id,
-  //   //   resortName: resort.name,
-  //   //   url,
-  //   //   htmlLen: html.length,
-  //   //   title,
-  //   //   hasNextData,
-  //   //   hasLoonText,
-  //   //   hasRecentSnowfall,
-  //   // });
-  // }
+  dvlog("[onthesnow] fetched html summary", {
+    resortId: resort.id,
+    resortName: resort.name,
+    url,
+    htmlLen: html.length,
+    title,
+    hasNextData,
+    hasLoonText,
+    hasRecentSnowfall,
+  });
 
-  // if (isDebugOnTheSnow()) {
-  //   const title = html.match(/<title>([^<]+)<\/title>/i)?.[1]?.trim();
-  //   console.log("[onthesnow] fetched page title:", title);
-  //   console.log("[onthesnow] fetched html head:", html.slice(0, 250));
-
-  //   const i = html.indexOf("Recent Snowfall");
-  //   console.log("[onthesnow] RecentSnowfall idx", i);
-  //   if (i >= 0)
-  //     console.log(
-  //       "[onthesnow] RecentSnowfall window head",
-  //       html.slice(i, i + 400),
-  //     );
-  // }
-
-  if (resort.id === "loon") {
-    console.log("[loon recentDaily]", recentDaily);
-  }
   const last48FromNext = parseLast48FromNextData(html);
   const last48FromHtml = parseLast48FromRecentSnowfall(html);
-
-  // if (["wachusett", "mcintyre", "berkshireeast"].includes(resort.id)) {
-  //   const next = extractNextData(html);
-  //   const rawLast48 = next?.props?.pageProps?.fullResort?.snow?.last48;
-
-  //   console.log("[onthesnow.verify]", {
-  //     resortId: resort.id,
-  //     resortName: resort.name,
-  //     rawLast48,
-  //     parsedRawLast48: toInches(rawLast48),
-  //     last48FromNext,
-  //     last48FromHtml,
-  //   });
-  // }
 
   let provenance: string;
   let last48In: number | null;
@@ -888,22 +846,6 @@ export async function getOnTheSnowLast48(resort: Resort) {
     last48In = null;
     provenance = "none";
   }
-  // if (isDebugOnTheSnow() && resort.id === "loon") {
-  //   console.log("[onthesnow][loon] parse results", {
-  //     last48FromNext,
-  //     last48FromHtml,
-  //   });
-  // }
-  // if (isDebugOnTheSnow()) {
-  //   console.log("[onthesnow] last48 chosen", {
-  //     resortId: resort.id,
-  //     provenance,
-  //     last48FromNext,
-  //     last48FromHtml,
-  //     last48In,
-  //     url,
-  //   });
-  // }
 
   const updatedAtISO = parseUpdatedISO(html); // may be null
   const updatedAt = updatedAtISO ?? new Date().toISOString(); // fallback only
