@@ -64,6 +64,16 @@ function resortFetchProxy(): Plugin {
       const urlObj = new URL(req.url, "http://localhost");
       if (urlObj.pathname !== "/api/fetch") return false;
 
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type, Accept");
+
+      if (req.method === "OPTIONS") {
+        res.statusCode = 204;
+        res.end();
+        return true;
+      }
+
       const target = urlObj.searchParams.get("url");
       if (!target) {
         res.statusCode = 400;
@@ -94,10 +104,6 @@ function resortFetchProxy(): Plugin {
         return true;
       }
 
-      console.log("[proxy] ->", targetUrl.toString());
-
-      console.log("[proxy] ->", targetUrl.toString());
-
       const isOnTheSnow = targetUrl.host === "www.onthesnow.com";
       const isNWS =
         targetUrl.host === "api.weather.gov" ||
@@ -105,32 +111,28 @@ function resortFetchProxy(): Plugin {
 
       const headers: Record<string, string> = isNWS
         ? {
-            // NWS likes an identifying UA
             "User-Agent": "ski-resort-snow-totals/1.0 (+http://localhost)",
             Accept: "application/geo+json",
             "Accept-Language": "en-US,en;q=0.9",
           }
         : isOnTheSnow
-          ? {
-              // OnTheSnow is consumer-facing; give it browser-ish headers
-              "User-Agent":
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-              Accept:
-                "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-              "Accept-Language": "en-US,en;q=0.9",
-              Referer: "https://www.onthesnow.com/",
-              "Upgrade-Insecure-Requests": "1",
-            }
-          : {
-              // other resort sites
-              "User-Agent":
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-              Accept:
-                "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-              "Accept-Language": "en-US,en;q=0.9",
-            };
+        ? {
+            "User-Agent":
+              "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+            Accept:
+              "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+            Referer: "https://www.onthesnow.com/",
+            "Upgrade-Insecure-Requests": "1",
+          }
+        : {
+            "User-Agent":
+              "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+            Accept:
+              "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+          };
 
-      // IMPORTANT: manual redirects so we can see Location headers + chain
       const { resp: r, chain } = await fetchWithRedirectTrace(
         targetUrl.toString(),
         headers,
@@ -139,15 +141,6 @@ function resortFetchProxy(): Plugin {
       const finalUrl = chain[chain.length - 1]?.url ?? targetUrl.toString();
       const finalCt = r.headers.get("content-type");
 
-      console.log("[proxy] upstream", {
-        requestedUrl: targetUrl.toString(),
-        finalStatus: r.status,
-        finalUrl,
-        finalContentType: finalCt,
-        chain: chain.map((s) => ({ status: s.status, location: s.location })),
-      });
-
-      // Expose upstream meta to the browser (so fetchViaProxy can log it)
       res.setHeader("x-proxy-upstream-status", String(r.status));
       res.setHeader("x-proxy-final-url", finalUrl);
       res.setHeader("x-proxy-content-type", finalCt ?? "");
@@ -161,35 +154,6 @@ function resortFetchProxy(): Plugin {
         ),
       );
 
-      // If upstream fails, forward that failure clearly
-      if (!r.ok) {
-        const body = await r.text().catch(() => "");
-        console.log(
-          "[proxy] upstream NOT ok",
-          r.status,
-          r.statusText,
-          targetUrl.host,
-          body.slice(0, 200),
-        );
-
-        res.statusCode = r.status;
-        res.setHeader(
-          "Content-Type",
-          r.headers.get("content-type") ?? "text/plain; charset=utf-8",
-        );
-        res.end(body);
-        return true;
-      }
-
-      console.log("[proxy] upstream", {
-        status: r.status,
-        url: targetUrl.toString(),
-        finalUrl: r.url,
-        location: r.headers.get("location"),
-        contentType: r.headers.get("content-type"),
-      });
-
-      // If upstream fails, forward that failure clearly
       if (!r.ok) {
         const body = await r.text().catch(() => "");
         console.log(
@@ -212,14 +176,12 @@ function resortFetchProxy(): Plugin {
       const ab = await r.arrayBuffer();
 
       res.statusCode = 200;
-      const ct = r.headers.get("content-type");
-      if (ct) res.setHeader("Content-Type", ct);
-
-      // Important: convert ArrayBuffer properly for Node
+      if (finalCt) res.setHeader("Content-Type", finalCt);
       res.end(Buffer.from(ab));
       return true;
     } catch (e: any) {
       console.log("[proxy] ERROR", e?.stack ?? e);
+      res.setHeader("Access-Control-Allow-Origin", "*");
       res.statusCode = 500;
       res.end(`Proxy error: ${e?.message ?? String(e)}`);
       return true;

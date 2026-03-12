@@ -302,7 +302,7 @@ export default function Snow() {
     if (!snowById || Object.keys(snowById).length === 0) return null;
 
     return buildWeekPlan({
-      resorts: resortsForFetch,
+      resorts: RESORTS,
       metricsByResortId: snowById,
       startDateISO: todayISO(),
       days: 7,
@@ -670,13 +670,13 @@ export default function Snow() {
 
                     const primaryResortId = primaryPick?.resortId ?? null;
 
-                    // console.log("[hero primary snow]", {
-                    //   primaryResortId,
-                    //   resortName: primaryPick?.resortName,
-                    //   selectedDateISO: selectedDay?.dateISO,
-                    //   snow: primaryResortId ? snowById[primaryResortId] : null,
-                    //   topPick: selectedDay?.topPick,
-                    // });
+                    console.log("[hero primary snow]", {
+                      primaryResortId,
+                      resortName: primaryPick?.resortName,
+                      selectedDateISO: selectedDay?.dateISO,
+                      snow: primaryResortId ? snowById[primaryResortId] : null,
+                      topPick: selectedDay?.topPick,
+                    });
 
                     const next24Updated =
                       (primaryResortId
@@ -972,12 +972,10 @@ export default function Snow() {
                           >
                             <span>
                               {selectedPrevious48Label
-                                ? typeof selectedPrevious48In === "number"
-                                  ? fmtSelectedPrevious48Hero(
-                                      selectedPrevious48Label,
-                                      selectedPrevious48In,
-                                    )
-                                  : `${selectedPrevious48Label}: —`
+                                ? fmtSelectedPrevious48Hero(
+                                    selectedPrevious48Label,
+                                    selectedPrevious48In,
+                                  )
                                 : primaryResortId
                                 ? fmtRecentSnowHero(
                                     (snowById[primaryResortId] as any)
