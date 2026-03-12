@@ -30,7 +30,7 @@ export const RESORT_PROVIDER_IDS: ResortProviderIds[] = [
   { id: "wildcat", onTheSnowSlug: "wildcat-mountain" },
   { id: "attitash", onTheSnowSlug: "attitash" },
   { id: "cranmore", onTheSnowSlug: "cranmore" },
-  { id: "blacknh", onTheSnowSlug: "black-mountain-nh" },
+  // { id: "blacknh", onTheSnowSlug: "black-mountain-nh" },
   { id: "gunstock", onTheSnowSlug: "gunstock" },
   { id: "sunapee", onTheSnowSlug: "mount-sunapee" },
   {
@@ -120,13 +120,13 @@ export const RESORTS: Resort[] = [
     lat: 44.0548,
     lon: -71.1286,
   },
-  {
-    id: "blacknh",
-    name: "Black Mountain (NH)",
-    state: "NH",
-    lat: 44.3045,
-    lon: -71.184,
-  },
+  // {
+  //   id: "blacknh",
+  //   name: "Black Mountain (NH)",
+  //   state: "NH",
+  //   lat: 44.3045,
+  //   lon: -71.184,
+  // },
   {
     id: "gunstock",
     name: "Gunstock",
