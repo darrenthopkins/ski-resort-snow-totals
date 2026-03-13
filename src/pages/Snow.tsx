@@ -20,7 +20,7 @@ import {
 } from "@ionic/react";
 import { IonIcon } from "@ionic/react";
 import type { RefresherEventDetail } from "@ionic/core";
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import "./Snow.css";
 
 import { RESORTS } from "../data/resorts";
@@ -37,7 +37,7 @@ import {
   carOutline,
   leafOutline,
   navigateOutline,
-  refreshOutline,
+  snowOutline,
   thermometerOutline,
 } from "ionicons/icons";
 /** ---------------------------
@@ -336,6 +336,8 @@ export default function Snow() {
     );
   }, [weekVM]);
 
+  const dayButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+
   const selectedDay = useMemo(() => {
     if (!weekVM) return null;
     const key =
@@ -347,6 +349,20 @@ export default function Snow() {
     if (!key) return null;
     return weekVM.days.find((d) => d.dateISO === key) ?? weekVM.days[0] ?? null;
   }, [weekVM, selectedDateISO]);
+
+  useEffect(() => {
+    const key = selectedDay?.dateISO;
+    if (!key) return;
+
+    const el = dayButtonRefs.current[key];
+    if (!el) return;
+
+    el.scrollIntoView({
+      behavior: "smooth",
+      inline: "center",
+      block: "nearest",
+    });
+  }, [selectedDay?.dateISO]);
 
   useEffect(() => {
     if (selectedDateISO) return;
@@ -503,22 +519,177 @@ export default function Snow() {
     return miles ? `~${miles} mi` : "—";
   }
 
-  function buildMedalSnowLine(resortId?: string | null) {
-    if (!resortId) return "Recent — · Next —";
+  function selectedDaySnowValue(params: {
+    resortId?: string | null;
+    dateISO?: string | null;
+    kind: "previous48" | "next24";
+  }): { label: string; inches: number | null } {
+    const { resortId, dateISO, kind } = params;
 
-    const snow = snowById[resortId];
-    if (!snow) return "Recent — · Next —";
+    if (!resortId || !dateISO) {
+      return {
+        label: kind === "previous48" ? "Recent" : "Next 24",
+        inches: null,
+      };
+    }
 
-    const recent =
-      snow.last48In == null
-        ? "Recent —"
-        : `Recent ${snow.last48In.toFixed(1)}"`;
+    const snow = snowById[resortId] as any;
+    if (!snow) {
+      return {
+        label: kind === "previous48" ? "Recent" : dayOfWeekShort(dateISO),
+        inches: null,
+      };
+    }
+
+    if (kind === "previous48") {
+      const prev2ISO = (() => {
+        const [y, m, d] = dateISO.split("-").map(Number);
+        const dt = new Date(y, (m ?? 1) - 1, d ?? 1);
+        dt.setDate(dt.getDate() - 2);
+        const yy = dt.getFullYear();
+        const mm = String(dt.getMonth() + 1).padStart(2, "0");
+        const dd = String(dt.getDate()).padStart(2, "0");
+        return `${yy}-${mm}-${dd}`;
+      })();
+
+      const prev1ISO = (() => {
+        const [y, m, d] = dateISO.split("-").map(Number);
+        const dt = new Date(y, (m ?? 1) - 1, d ?? 1);
+        dt.setDate(dt.getDate() - 1);
+        const yy = dt.getFullYear();
+        const mm = String(dt.getMonth() + 1).padStart(2, "0");
+        const dd = String(dt.getDate()).padStart(2, "0");
+        return `${yy}-${mm}-${dd}`;
+      })();
+
+      const recentDaily = snow?.recentSnowDaily;
+      let inches: number | null = null;
+
+      if (Array.isArray(recentDaily)) {
+        const byIso = new Map<string, number>();
+        const byLabel = new Map<string, number>();
+
+        for (const row of recentDaily) {
+          const iso = String(row?.isoDate ?? "").slice(0, 10);
+          const label = String(row?.label ?? "");
+          const raw = row?.inches;
+          const n =
+            typeof raw === "number" && Number.isFinite(raw) ? raw : null;
+
+          if (iso && n != null) byIso.set(iso, n);
+          if (label && n != null) byLabel.set(label, n);
+        }
+
+        const isoHit = byIso.has(prev2ISO) || byIso.has(prev1ISO);
+        if (isoHit) {
+          inches = (byIso.get(prev2ISO) ?? 0) + (byIso.get(prev1ISO) ?? 0);
+        } else {
+          const prev2Label = dayOfWeekShort(prev2ISO);
+          const prev1Label = dayOfWeekShort(prev1ISO);
+          const labelHit = byLabel.has(prev2Label) || byLabel.has(prev1Label);
+          if (labelHit) {
+            inches =
+              (byLabel.get(prev2Label) ?? 0) + (byLabel.get(prev1Label) ?? 0);
+          }
+        }
+      } else if (recentDaily && typeof recentDaily === "object") {
+        const prev2Label = dayOfWeekShort(prev2ISO);
+        const prev1Label = dayOfWeekShort(prev1ISO);
+
+        const readObj = (key: string) => {
+          const v = (recentDaily as Record<string, unknown>)[key];
+          return typeof v === "number" && Number.isFinite(v) ? v : null;
+        };
+
+        const isoA = readObj(prev2ISO);
+        const isoB = readObj(prev1ISO);
+        if (isoA != null || isoB != null) {
+          inches = (isoA ?? 0) + (isoB ?? 0);
+        } else {
+          const labA = readObj(prev2Label);
+          const labB = readObj(prev1Label);
+          if (labA != null || labB != null) {
+            inches = (labA ?? 0) + (labB ?? 0);
+          }
+        }
+      }
+
+      return {
+        label: `${dayOfWeekShort(prev2ISO)}-${dayOfWeekShort(prev1ISO)}`,
+        inches,
+      };
+    }
+
+    const weekDaily = snow?.weekSnowDaily;
+    let inches: number | null = null;
+
+    if (Array.isArray(weekDaily)) {
+      const row = weekDaily.find((x: any) => {
+        const iso = String(x?.isoDate ?? x?.dateISO ?? "").slice(0, 10);
+        return iso === dateISO;
+      });
+
+      const raw = row?.inches ?? row?.snowIn ?? row?.snow ?? row?.value ?? null;
+
+      inches = typeof raw === "number" && Number.isFinite(raw) ? raw : null;
+    } else if (weekDaily && typeof weekDaily === "object") {
+      const raw = (weekDaily as Record<string, unknown>)[dateISO];
+      inches = typeof raw === "number" && Number.isFinite(raw) ? raw : null;
+    }
+
+    return {
+      label: dayOfWeekShort(dateISO),
+      inches,
+    };
+  }
+
+  function buildMedalSnowLine(
+    pick?: {
+      resortId?: string;
+      previous48Label?: string;
+      previous48In?: number | null;
+      next24Label?: string;
+      next24In?: number | null;
+    } | null,
+  ) {
+    if (!pick?.resortId || !selectedDay?.dateISO) return "Recent — · New —";
+
+    const previous =
+      typeof pick.previous48In === "number"
+        ? { label: pick.previous48Label ?? "Recent", inches: pick.previous48In }
+        : selectedDaySnowValue({
+            resortId: pick.resortId,
+            dateISO: selectedDay.dateISO,
+            kind: "previous48",
+          });
 
     const next =
-      snow.next24In == null ? "Next —" : `Next ${snow.next24In.toFixed(1)}"`;
+      typeof pick.next24In === "number"
+        ? {
+            label: pick.next24Label ?? dayOfWeekShort(selectedDay.dateISO),
+            inches: pick.next24In,
+          }
+        : selectedDaySnowValue({
+            resortId: pick.resortId,
+            dateISO: selectedDay.dateISO,
+            kind: "next24",
+          });
 
-    return `${recent} · ${next}`;
+    const previousText =
+      previous.inches == null
+        ? `${previous.label}: —`
+        : `${previous.label}: ${previous.inches.toFixed(
+            previous.inches >= 10 ? 0 : 1,
+          )}"`;
+
+    const nextText =
+      next.inches == null
+        ? `${next.label}: —`
+        : `${next.label}: ${next.inches.toFixed(next.inches >= 10 ? 0 : 1)}"`;
+
+    return `${previousText} · ${nextText}`;
   }
+
   /** ---------------------------
    *  Header note (compass freshness only)
    *  --------------------------- */
@@ -674,8 +845,14 @@ export default function Snow() {
                       primaryResortId,
                       resortName: primaryPick?.resortName,
                       selectedDateISO: selectedDay?.dateISO,
-                      snow: primaryResortId ? snowById[primaryResortId] : null,
-                      topPick: selectedDay?.topPick,
+                      topPickNext24Label: selectedDay?.topPick?.next24Label,
+                      topPickNext24In: selectedDay?.topPick?.next24In,
+                      weekSnowDaily: primaryResortId
+                        ? (snowById[primaryResortId] as any)?.weekSnowDaily
+                        : null,
+                      recentSnowDaily: primaryResortId
+                        ? (snowById[primaryResortId] as any)?.recentSnowDaily
+                        : null,
                     });
 
                     const next24Updated =
@@ -719,34 +896,12 @@ export default function Snow() {
                     const selectedNext24In =
                       typeof selectedDay?.topPick?.next24In === "number"
                         ? selectedDay.topPick.next24In
-                        : primaryResortId && selectedNext24Label
-                        ? (() => {
-                            const daily = (snowById[primaryResortId] as any)
-                              ?.weekSnowDaily;
-                            if (!Array.isArray(daily)) return null;
-
-                            const row = daily.find((x: any) => {
-                              const iso = String(
-                                x?.isoDate ?? x?.dateISO ?? "",
-                              ).slice(0, 10);
-                              return (
-                                iso &&
-                                dayOfWeekShort(iso) === selectedNext24Label
-                              );
-                            });
-
-                            const raw =
-                              row?.inches ??
-                              row?.snowIn ??
-                              row?.snow ??
-                              row?.value ??
-                              null;
-
-                            return typeof raw === "number" &&
-                              Number.isFinite(raw)
-                              ? raw
-                              : null;
-                          })()
+                        : primaryResortId && selectedDay?.dateISO
+                        ? selectedDaySnowValue({
+                            resortId: primaryResortId,
+                            dateISO: selectedDay.dateISO,
+                            kind: "next24",
+                          }).inches
                         : null;
                     const whyBullets =
                       (selectedDay?.topPick?.bullets?.length
@@ -994,7 +1149,7 @@ export default function Snow() {
                               fontWeight: 900,
                             }}
                           >
-                            <IonIcon icon={refreshOutline} aria-hidden="true" />
+                            <IonIcon icon={snowOutline} aria-hidden="true" />
                             <span>
                               {selectedNext24Label
                                 ? fmtSelectedNext24Hero(
@@ -1112,6 +1267,9 @@ export default function Snow() {
                       return (
                         <button
                           key={d.dateISO}
+                          ref={(el) => {
+                            dayButtonRefs.current[d.dateISO] = el;
+                          }}
                           onClick={() => setSelectedDateISO(d.dateISO)}
                           style={{
                             all: "unset",
@@ -1316,7 +1474,7 @@ export default function Snow() {
                     const tone = medalTone(label);
                     const wx = extractMedalWxDetails(resort?.bullets);
                     const drive = extractMedalDriveText(resort?.bullets);
-                    const snowLine = buildMedalSnowLine(resort?.resortId);
+                    const snowLine = buildMedalSnowLine(resort);
 
                     return (
                       <div
@@ -1409,7 +1567,7 @@ export default function Snow() {
                               gap: 8,
                             }}
                           >
-                            <IonIcon icon={refreshOutline} aria-hidden="true" />
+                            <IonIcon icon={snowOutline} aria-hidden="true" />
                             <span>{snowLine}</span>
                           </div>
 

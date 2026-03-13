@@ -236,9 +236,9 @@ function previous48LabelForSelectedDay(dateISO: string): string {
 }
 
 function next24LabelForSelectedDay(dateISO: string): string {
-  const next = addDaysISO(dateISO, 1);
-  return dowShort(next);
+  return dowShort(dateISO);
 }
+
 function truthBulletsFromFacts(facts?: DayFacts): string[] {
   if (!facts) return [];
 
@@ -291,7 +291,7 @@ function selectedDaySnowContext(params: {
 
   const prev2ISO = addDaysISO(dateISO, -2);
   const prev1ISO = addDaysISO(dateISO, -1);
-  const next1ISO = addDaysISO(dateISO, 1);
+  const selectedISO = dateISO;
 
   const prev2Label = dowShort(prev2ISO);
   const prev1Label = dowShort(prev1ISO);
@@ -299,6 +299,7 @@ function selectedDaySnowContext(params: {
   const recentByIso = new Map<string, number>();
   const recentByLabel = new Map<string, number>();
   const forecastByIso = new Map<string, number>();
+  const forecastByLabel = new Map<string, number>();
 
   const recentDaily = snow?.recentSnowDaily as any;
   const weekDaily = snow?.weekSnowDaily as any;
@@ -343,10 +344,20 @@ function selectedDaySnowContext(params: {
           : typeof d?.dateISO === "string"
           ? String(d.dateISO).slice(0, 10)
           : "";
+
+      const label =
+        typeof d?.label === "string"
+          ? normalizeDowKey(String(d.label))
+          : iso
+          ? dowShort(iso)
+          : "";
+
       const inches = toFiniteNumber(
         d?.inches ?? d?.snowIn ?? d?.snow ?? d?.value,
       );
+
       if (iso && inches != null) forecastByIso.set(iso, inches);
+      if (label && inches != null) forecastByLabel.set(label, inches);
     }
   } else if (weekDaily && typeof weekDaily === "object") {
     for (const [key, value] of Object.entries(weekDaily)) {
@@ -355,34 +366,39 @@ function selectedDaySnowContext(params: {
 
       if (isIsoDateKey(key)) {
         forecastByIso.set(key.slice(0, 10), inches);
+      } else {
+        forecastByLabel.set(normalizeDowKey(key), inches);
       }
     }
   }
 
-  const measuredPrevious48FromIso =
-    (recentByIso.get(prev2ISO) ?? 0) + (recentByIso.get(prev1ISO) ?? 0);
+  function readDailyBucket(iso: string, label: string): number | null {
+    if (recentByIso.has(iso)) return recentByIso.get(iso) ?? 0;
+    if (recentByLabel.has(label)) return recentByLabel.get(label) ?? 0;
+    if (forecastByIso.has(iso)) return forecastByIso.get(iso) ?? 0;
+    if (forecastByLabel.has(label)) return forecastByLabel.get(label) ?? 0;
+    return null;
+  }
 
-  const hasMeasuredPrevious48FromIso =
-    recentByIso.has(prev2ISO) || recentByIso.has(prev1ISO);
+  const prev2In = readDailyBucket(prev2ISO, prev2Label);
+  const prev1In = readDailyBucket(prev1ISO, prev1Label);
 
-  const measuredPrevious48FromLabel =
-    (recentByLabel.get(prev2Label) ?? 0) + (recentByLabel.get(prev1Label) ?? 0);
+  const hasPrevious48 = prev2In != null || prev1In != null;
 
-  const hasMeasuredPrevious48FromLabel =
-    recentByLabel.has(prev2Label) || recentByLabel.has(prev1Label);
-
-  const hasForecastNext24 = forecastByIso.has(next1ISO);
-  const forecastNext24 = forecastByIso.get(next1ISO) ?? 0;
+  const next24FromIso = forecastByIso.get(selectedISO);
+  const next24FromLabel = forecastByLabel.get(dowShort(selectedISO));
+  const next24In =
+    next24FromIso != null
+      ? next24FromIso
+      : next24FromLabel != null
+      ? next24FromLabel
+      : null;
 
   return {
     previous48Label: previous48LabelForSelectedDay(dateISO),
-    previous48In: hasMeasuredPrevious48FromIso
-      ? measuredPrevious48FromIso
-      : hasMeasuredPrevious48FromLabel
-      ? measuredPrevious48FromLabel
-      : null,
+    previous48In: hasPrevious48 ? (prev2In ?? 0) + (prev1In ?? 0) : null,
     next24Label: next24LabelForSelectedDay(dateISO),
-    next24In: hasForecastNext24 ? forecastNext24 : null,
+    next24In,
   };
 }
 
