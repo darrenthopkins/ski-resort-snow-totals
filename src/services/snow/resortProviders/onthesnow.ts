@@ -54,6 +54,23 @@ function toLocalISODate(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
+function parseDateISOAsLocal(raw: string): Date | null {
+  const s = raw.trim();
+
+  // Important: date-only strings like "2026-03-14" are parsed by `new Date(...)`
+  // as UTC midnight, which shifts to the prior local date in US time zones.
+  // For OnTheSnow forecast buckets, date-only values should be treated as the
+  // local calendar day shown on the site.
+  const dateOnlyMatch = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dateOnlyMatch) {
+    const [, y, m, d] = dateOnlyMatch;
+    return new Date(Number(y), Number(m) - 1, Number(d), 12, 0, 0, 0);
+  }
+
+  const parsed = new Date(s);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 function normalizeForecastLabel(label: string): string {
   return label.trim().toLowerCase().replace(/\./g, "");
 }
@@ -618,10 +635,8 @@ function extractForecastSnowDailyFromNextData(
 
     if (!rawDate) continue;
 
-    const parsedDate = new Date(rawDate);
-    const dateISO = Number.isNaN(parsedDate.getTime())
-      ? null
-      : toLocalISODate(parsedDate);
+    const parsedDate = parseDateISOAsLocal(rawDate);
+    const dateISO = parsedDate ? toLocalISODate(parsedDate) : null;
 
     const inches =
       typeof rawSnow === "number" && Number.isFinite(rawSnow)
