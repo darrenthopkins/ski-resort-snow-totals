@@ -3,6 +3,7 @@ import { calculateConfidence, type DayFacts } from "./confidence";
 
 function baseFacts(overrides: Partial<DayFacts> = {}): DayFacts {
   return {
+    dateISO: "2026-03-13", // default weekday before late-season cutoff
     newSnowInches: 0,
     baseDepthInches: 30,
     minTempF: 15,
@@ -227,5 +228,95 @@ describe("calculateConfidence", () => {
 
     const r = calculateConfidence(f);
     expect(r.label).not.toBe("red");
+  });
+  it("applies the weekend crowd penalty before the late-season cutoff", () => {
+    const shared = {
+      newSnowInches: 2,
+      baseDepthInches: 30,
+      minTempF: 15,
+      maxTempF: 28,
+      maxWindMph: 8,
+    };
+
+    const weekday = calculateConfidence(
+      baseFacts({
+        ...shared,
+        dateISO: "2026-03-13", // Fri
+        isWeekend: false,
+      }),
+    );
+
+    const weekend = calculateConfidence(
+      baseFacts({
+        ...shared,
+        dateISO: "2026-03-14", // Sat, before cutoff
+        isWeekend: true,
+      }),
+    );
+
+    expect(weekday.reasons).toContain("Weekday crowds");
+    expect(weekend.reasons).toContain("Weekend crowds");
+    expect(weekday.score - weekend.score).toBe(15);
+  });
+
+  it("removes the weekend crowd penalty on and after the late-season cutoff", () => {
+    const shared = {
+      newSnowInches: 2,
+      baseDepthInches: 30,
+      minTempF: 15,
+      maxTempF: 28,
+      maxWindMph: 8,
+    };
+
+    const weekday = calculateConfidence(
+      baseFacts({
+        ...shared,
+        dateISO: "2026-03-16", // Mon, after cutoff
+        isWeekend: false,
+      }),
+    );
+
+    const weekend = calculateConfidence(
+      baseFacts({
+        ...shared,
+        dateISO: "2026-03-21", // Sat, after cutoff
+        isWeekend: true,
+      }),
+    );
+
+    expect(weekday.reasons).toContain("Weekday crowds");
+    expect(weekend.reasons).toContain("Late-season weekend (no crowd penalty)");
+    expect(weekend.reasons).not.toContain("Weekend crowds");
+    expect(weekend.score).toBe(weekday.score);
+  });
+
+  it("keeps weekday scoring unchanged across the cutoff", () => {
+    const before = calculateConfidence(
+      baseFacts({
+        dateISO: "2026-03-13",
+        isWeekend: false,
+        newSnowInches: 2,
+        baseDepthInches: 30,
+        minTempF: 15,
+        maxTempF: 28,
+        maxWindMph: 8,
+      }),
+    );
+
+    const after = calculateConfidence(
+      baseFacts({
+        dateISO: "2026-03-16",
+        isWeekend: false,
+        newSnowInches: 2,
+        baseDepthInches: 30,
+        minTempF: 15,
+        maxTempF: 28,
+        maxWindMph: 8,
+      }),
+    );
+
+    expect(after.score).toBe(before.score);
+    expect(before.reasons).toContain("Weekday crowds");
+    expect(after.reasons).toContain("Weekday crowds");
   });
 });

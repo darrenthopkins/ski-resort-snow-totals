@@ -3,6 +3,9 @@
 export type ConfidenceLabel = "green" | "yellow" | "red";
 
 export type DayFacts = {
+  /** ISO date for this scored day, local semantics: YYYY-MM-DD */
+  dateISO: string;
+
   /** last 24h + next 24h (or however you compute it upstream) */
   newSnowInches: number;
   baseDepthInches: number;
@@ -113,10 +116,18 @@ function scoreWind(maxWindMph: number): ComponentScore {
   return { points: -20, reasons: ["Very windy (high lift/comfort risk)"] };
 }
 
-function scoreCrowds(isWeekend: boolean): ComponentScore {
-  return isWeekend
-    ? { points: -15, reasons: ["Weekend crowds"] }
-    : { points: 0, reasons: ["Weekday crowds"] };
+const LATE_SEASON_WEEKEND_PENALTY_CUTOFF_ISO = "2026-03-15";
+
+function scoreCrowds(dateISO: string, isWeekend: boolean): ComponentScore {
+  if (!isWeekend) {
+    return { points: 0, reasons: ["Weekday crowds"] };
+  }
+
+  if (dateISO >= LATE_SEASON_WEEKEND_PENALTY_CUTOFF_ISO) {
+    return { points: 0, reasons: ["Late-season weekend (no crowd penalty)"] };
+  }
+
+  return { points: -15, reasons: ["Weekend crowds"] };
 }
 
 type DriveParams = {
@@ -164,7 +175,7 @@ export function calculateConfidence(facts: DayFacts): ConfidenceResult {
   const base = scoreBase(facts.baseDepthInches);
   const temp = scoreTemperature(facts.minTempF, facts.maxTempF);
   const wind = scoreWind(facts.maxWindMph);
-  const crowds = scoreCrowds(facts.isWeekend);
+  const crowds = scoreCrowds(facts.dateISO, facts.isWeekend);
   const drive = scoreDriveMiles(facts.driveMiles);
 
   const reasons: string[] = [

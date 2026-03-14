@@ -172,6 +172,10 @@ describe("SnowService contract", () => {
       (first.weekSnowDaily ?? []).map((row: any) => [row.dateISO, row.inches]),
     );
 
+    console.log(
+      "weekSnowDaily",
+      first.weekSnowDaily?.map((d) => `${d.dateISO}:${d.inches}`),
+    );
     expect(byDate.get("2026-03-12")).toBe(3); // OTS beats NWS 0
     expect(byDate.get("2026-03-13")).toBe(2); // NWS beats OTS 1
     expect(first.next24In).toBe(1);

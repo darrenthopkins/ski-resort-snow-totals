@@ -53,28 +53,54 @@ function mergeFutureSnowDaily(
   days = 7,
   now = new Date(),
 ): DailySnowBin[] {
-  const base = zeroSnowWindow(days, now);
+  const otsBins = (ots ?? []).filter(
+    (bin): bin is OnTheSnowForecastDailyBin =>
+      typeof bin?.dateISO === "string" &&
+      bin.dateISO.length > 0 &&
+      typeof bin.inches === "number" &&
+      Number.isFinite(bin.inches),
+  );
+
+  const nwsBins = (nws ?? []).filter(
+    (bin): bin is DailySnowBin =>
+      typeof bin?.dateISO === "string" &&
+      bin.dateISO.length > 0 &&
+      typeof bin.inches === "number" &&
+      Number.isFinite(bin.inches),
+  );
+
+  const mergedDates = Array.from(
+    new Set([
+      ...nwsBins.map((bin) => bin.dateISO),
+      ...otsBins.map((bin) => bin.dateISO),
+    ]),
+  )
+    .sort()
+    .slice(0, days);
+
+  if (mergedDates.length === 0) {
+    return zeroSnowWindow(days, now);
+  }
+
   const map = new Map<string, number>();
 
-  for (const bin of base) {
-    map.set(bin.dateISO, 0);
+  for (const dateISO of mergedDates) {
+    map.set(dateISO, 0);
   }
 
-  for (const bin of nws ?? []) {
+  for (const bin of nwsBins) {
     if (!map.has(bin.dateISO)) continue;
-    const inches = Number.isFinite(bin.inches) ? bin.inches : 0;
-    map.set(bin.dateISO, Math.max(map.get(bin.dateISO) ?? 0, inches));
+    map.set(bin.dateISO, Math.max(map.get(bin.dateISO) ?? 0, bin.inches));
   }
 
-  for (const bin of ots ?? []) {
+  for (const bin of otsBins) {
     if (!map.has(bin.dateISO)) continue;
-    const inches = Number.isFinite(bin.inches) ? bin.inches : 0;
-    map.set(bin.dateISO, Math.max(map.get(bin.dateISO) ?? 0, inches));
+    map.set(bin.dateISO, Math.max(map.get(bin.dateISO) ?? 0, bin.inches));
   }
 
-  return base.map((bin) => ({
-    dateISO: bin.dateISO,
-    inches: map.get(bin.dateISO) ?? 0,
+  return mergedDates.map((dateISO) => ({
+    dateISO,
+    inches: map.get(dateISO) ?? 0,
   }));
 }
 

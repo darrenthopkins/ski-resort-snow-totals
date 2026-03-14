@@ -4,6 +4,7 @@ import type { DayFacts } from "./confidence";
 
 function facts(overrides: Partial<DayFacts> = {}): DayFacts {
   return {
+    dateISO: "2026-03-13",
     newSnowInches: 0,
     baseDepthInches: 30,
     minTempF: 15,

@@ -1,12 +1,15 @@
 import { describe, it, expect } from "vitest";
 import { MockSnowService } from "../services/snow/mockSnowService";
 import { RESORTS } from "../data/resorts";
-import { snowMetricsToCandidates, isoDateIsWeekend } from "./snowMetricsAdapter";
+import {
+  snowMetricsToCandidates,
+  isoDateIsWeekend,
+} from "./snowMetricsAdapter";
 
 describe("isoDateIsWeekend", () => {
   it("identifies weekends deterministically", () => {
-    expect(isoDateIsWeekend("2026-02-21")).toBe(true);  // Sat
-    expect(isoDateIsWeekend("2026-02-22")).toBe(true);  // Sun
+    expect(isoDateIsWeekend("2026-02-21")).toBe(true); // Sat
+    expect(isoDateIsWeekend("2026-02-22")).toBe(true); // Sun
     expect(isoDateIsWeekend("2026-02-16")).toBe(false); // Mon
   });
 });
@@ -28,6 +31,7 @@ describe("snowMetricsToCandidates", () => {
     // Each resort should produce a candidate with same date and weekday flag
     for (const c of candidates) {
       expect(c.dateISO).toBe(dateISO);
+      expect(c.facts.dateISO).toBe(dateISO);
       expect(c.facts.isWeekend).toBe(false);
       expect(typeof c.resortId).toBe("string");
       expect(typeof c.resortName).toBe("string");
@@ -52,5 +56,25 @@ describe("snowMetricsToCandidates", () => {
     });
 
     expect(candidates[0].facts.isWeekend).toBe(true);
+  });
+
+  it("copies dateISO into facts for downstream date-aware scoring", async () => {
+    const svc = new MockSnowService();
+    const metrics = await svc.getSnow();
+
+    const dateISO = "2026-03-21"; // Sat
+    const candidates = snowMetricsToCandidates({
+      resorts: RESORTS,
+      metricsByResortId: metrics,
+      dateISO,
+    });
+
+    expect(candidates.length).toBeGreaterThan(0);
+
+    for (const c of candidates) {
+      expect(c.dateISO).toBe(dateISO);
+      expect(c.facts.dateISO).toBe(dateISO);
+      expect(c.facts.isWeekend).toBe(true);
+    }
   });
 });

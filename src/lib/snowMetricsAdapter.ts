@@ -1,3 +1,4 @@
+//src/lib/snowMetricsAdapter.ts
 import type { Resort } from "../data/resorts";
 import type { SnowMetrics } from "../services/snow/types";
 import type { DayFacts } from "./confidence";
@@ -68,12 +69,12 @@ export function snowMetricsToCandidates(params: {
       binnedSnowForDay != null
         ? binnedSnowForDay
         : dayIndex == null
-          ? estimatedLast24 + forecastNext24
-          : dayIndex === 0
-            ? estimatedLast24
-            : dayIndex === 1
-              ? forecastNext24
-              : 0;
+        ? estimatedLast24 + forecastNext24
+        : dayIndex === 0
+        ? estimatedLast24
+        : dayIndex === 1
+        ? forecastNext24
+        : 0;
 
     // Preferred: NWS per-day weather bins
     const dailyWx = m?.weekWeatherDaily ?? null;
@@ -115,6 +116,7 @@ export function snowMetricsToCandidates(params: {
     const baseDepthInches = DEFAULT_BASE_DEPTH_INCHES;
 
     const facts: DayFacts = {
+      dateISO,
       newSnowInches,
       baseDepthInches,
       minTempF,
