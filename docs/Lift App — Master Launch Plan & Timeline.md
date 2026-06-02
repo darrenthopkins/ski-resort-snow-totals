@@ -42,7 +42,7 @@ To ensure maximum stability and strong initial store reviews, Lift will follow a
 ### **Phase 4: Public Production Launch (December 1 onwards)**
 
 * **Flip the Production Switch:** Progressively roll out public builds (e.g., 10% incremental release tracks over 7 days on Google Play, immediate or timed launch release on iOS).  
-* **Production Optimization:** Respond to feedback loops via Crashlytics or Sentry logs. Initiate post-launch App Store Optimization (ASO) iteration based on production search impressions.
+* **Production Optimization:** Initiate post-launch App Store Optimization (ASO) iteration based on production search impressions.
 
 ## ---
 
@@ -51,9 +51,7 @@ To ensure maximum stability and strong initial store reviews, Lift will follow a
 ### **Apple App Store Submission Requirements**
 
 * App Store Connect Account active and team configurations complete.  
-* Sign-In with Apple integrated (mandatory if third-party social logins like Google/Facebook are used).  
 * Active, valid URLs for Privacy Policy and Terms of Service hosted externally.  
-* Fully functional, generic demo account credentials explicitly listed in the Review Notes field.
 
 ### **Google Play Store Submission Requirements**
 
