@@ -4,6 +4,9 @@ const config: CapacitorConfig = {
   appId: "com.dhopkins.skiresortsnowtotals",
   appName: "lift",
   webDir: "dist",
+  ios: {
+    webContentsDebuggingEnabled: true,
+  },
 };
 
 export default config;
