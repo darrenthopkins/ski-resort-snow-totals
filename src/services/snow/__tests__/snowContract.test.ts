@@ -7,6 +7,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { MockSnowService } from "../mockSnowService";
 import { RealSnowService } from "../realSnowService";
 import { RESORTS, RESORT_PROVIDER_IDS } from "../../../data/resorts";
+import { getOnTheSnowLast48 } from "../resortProviders/onthesnow";
+import { getNext24SnowInches } from "../nwsClient";
 
 // --- Mock network/provider dependencies so RealSnowService is deterministic ---
 vi.mock("../nwsClient", () => {
@@ -105,6 +107,8 @@ function expectSnowMetricsShape(v: any) {
 
 describe("SnowService contract", () => {
   beforeEach(() => {
+    vi.useRealTimers();
+    vi.clearAllMocks();
     localStorage.clear();
     localStorage.setItem("srs_debug_nocache", "1");
   });
@@ -180,5 +184,45 @@ describe("SnowService contract", () => {
     expect(byDate.get("2026-03-13")).toBe(2); // NWS beats OTS 1
     expect(first.next24In).toBe(1);
     expect(first.last48In).toBe(2);
+  });
+
+  it("RealSnowService completes when one provider never settles", async () => {
+    vi.useFakeTimers();
+    vi.mocked(getOnTheSnowLast48).mockImplementationOnce(
+      () => new Promise(() => {}) as any,
+    );
+
+    const svc = new RealSnowService();
+    const pending = svc.getSnow({ resorts: [RESORTS[0]] });
+
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    const out = await pending;
+    const first = out[RESORTS[0].id];
+    expect(first).toBeTruthy();
+    expect(first.last48In).toBeNull();
+    expect(first.next24In).toBe(1);
+    expect(first.weekSnowDaily).toBeTruthy();
+  });
+
+  it("forceRefresh bypasses the fresh service cache", async () => {
+    localStorage.removeItem("srs_debug_nocache");
+    const resort = {
+      id: "cache-bypass-test",
+      name: "Cache Bypass Test",
+      state: "NH" as const,
+      lat: 43,
+      lon: -71,
+    };
+
+    const svc = new RealSnowService();
+    await svc.getSnow({ resorts: [resort] });
+    await svc.getSnow({ resorts: [resort] });
+
+    expect(vi.mocked(getNext24SnowInches)).toHaveBeenCalledTimes(1);
+
+    await svc.getSnow({ resorts: [resort], forceRefresh: true });
+
+    expect(vi.mocked(getNext24SnowInches)).toHaveBeenCalledTimes(2);
   });
 });
