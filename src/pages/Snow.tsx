@@ -45,7 +45,8 @@ import {
  *  --------------------------- */
 const DEFAULT_MAX_MILES = 110;
 const LS_MAX_MILES = "srs_max_miles_v1";
-const LS_SNOW_CACHE = "srs_snow_cache_v1";
+export const LS_SNOW_UI_CACHE = "srs_snow_ui_hydration_v1";
+const SNOW_UI_CACHE_VERSION = 1;
 
 const FALLBACK_DRIVE_MILES: Record<string, number> = {
   patspeak: 47,
@@ -80,6 +81,144 @@ function readMaxMiles(): number {
     if (Number.isFinite(n) && n > 0) return clampMiles(n);
   } catch {}
   return DEFAULT_MAX_MILES;
+}
+
+function isNumberOrNull(value: unknown): value is number | null {
+  return value === null || (typeof value === "number" && Number.isFinite(value));
+}
+
+function isOptionalNumberOrNull(value: unknown): boolean {
+  return value === undefined || isNumberOrNull(value);
+}
+
+function isMetricMeta(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!value || typeof value !== "object") return false;
+  const m = value as any;
+  return (
+    typeof m.source === "string" &&
+    typeof m.status === "string" &&
+    typeof m.sourceUrl === "string" &&
+    typeof m.updatedAt === "string"
+  );
+}
+
+function isSnowDailyArray(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!Array.isArray(value)) return false;
+  return value.every(
+    (row) =>
+      row &&
+      typeof row === "object" &&
+      typeof (row as any).dateISO === "string" &&
+      isNumberOrNull((row as any).inches),
+  );
+}
+
+function isRecentSnowDailyArray(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!Array.isArray(value)) return false;
+  return value.every(
+    (row) =>
+      row &&
+      typeof row === "object" &&
+      typeof (row as any).dateISO === "string" &&
+      typeof (row as any).label === "string" &&
+      typeof (row as any).inches === "number" &&
+      Number.isFinite((row as any).inches),
+  );
+}
+
+function isWeatherDailyArray(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!Array.isArray(value)) return false;
+  return value.every(
+    (row) =>
+      row &&
+      typeof row === "object" &&
+      typeof (row as any).dateISO === "string" &&
+      isNumberOrNull((row as any).minTempF) &&
+      isNumberOrNull((row as any).maxTempF) &&
+      isNumberOrNull((row as any).maxWindMph),
+  );
+}
+
+export function isValidSnowMetrics(value: unknown): value is SnowMetrics {
+  if (!value || typeof value !== "object") return false;
+  const m = value as Partial<SnowMetrics>;
+  return (
+    isNumberOrNull(m.last48In) &&
+    isNumberOrNull(m.next24In) &&
+    isOptionalNumberOrNull(m.minTempF) &&
+    isOptionalNumberOrNull(m.maxTempF) &&
+    isOptionalNumberOrNull(m.maxWindMph) &&
+    isMetricMeta(m.last48Meta) &&
+    isMetricMeta(m.next24Meta) &&
+    isMetricMeta(m.minTempMeta) &&
+    isMetricMeta(m.maxTempMeta) &&
+    isMetricMeta(m.maxWindMeta) &&
+    isMetricMeta(m.weekSnowMeta) &&
+    isMetricMeta(m.weekWeatherMeta) &&
+    isSnowDailyArray(m.weekSnowDaily) &&
+    isRecentSnowDailyArray(m.recentSnowDaily) &&
+    isWeatherDailyArray(m.weekWeatherDaily)
+  );
+}
+
+function hasValidSnowRecords(value: Record<string, SnowMetrics>): boolean {
+  return Object.values(value).some(isValidSnowMetrics);
+}
+
+function validSnowRecordsOnly(
+  value: Record<string, SnowMetrics>,
+): Record<string, SnowMetrics> {
+  const out: Record<string, SnowMetrics> = {};
+  for (const [id, metrics] of Object.entries(value)) {
+    if (typeof id === "string" && isValidSnowMetrics(metrics)) {
+      out[id] = metrics;
+    }
+  }
+  return out;
+}
+
+export function readSnowUiCache(): Record<string, SnowMetrics> {
+  try {
+    const raw = localStorage.getItem(LS_SNOW_UI_CACHE);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (
+      !parsed ||
+      typeof parsed !== "object" ||
+      (parsed as any).version !== SNOW_UI_CACHE_VERSION ||
+      !(parsed as any).snowById ||
+      typeof (parsed as any).snowById !== "object"
+    )
+      return {};
+
+    const out: Record<string, SnowMetrics> = {};
+    for (const [id, metrics] of Object.entries((parsed as any).snowById)) {
+      if (typeof id === "string" && isValidSnowMetrics(metrics)) {
+        out[id] = metrics;
+      }
+    }
+    return out;
+  } catch {}
+  return {};
+}
+
+export function writeSnowUiCache(value: Record<string, SnowMetrics>) {
+  const snowById = validSnowRecordsOnly(value);
+  if (!hasValidSnowRecords(snowById)) return;
+  try {
+    localStorage.setItem(
+      LS_SNOW_UI_CACHE,
+      JSON.stringify({
+        version: SNOW_UI_CACHE_VERSION,
+        at: Date.now(),
+        snowById,
+      }),
+    );
+  } catch {}
 }
 
 function fmtInches(v: number | null) {
@@ -122,8 +261,11 @@ export default function Snow() {
    *  --------------------------- */
   const [geo, setGeo] = useState<GeoUi>({ status: "idle" });
 
-  const [snowById, setSnowById] = useState<Record<string, SnowMetrics>>({});
+  const [snowById, setSnowById] = useState<Record<string, SnowMetrics>>(() =>
+    readSnowUiCache(),
+  );
   const [snowLoading, setSnowLoading] = useState<boolean>(true);
+  const [snowError, setSnowError] = useState<string | null>(null);
 
   const [maxMiles, setMaxMiles] = useState<number>(() => readMaxMiles());
   const [radiusOpen, setRadiusOpen] = useState(false);
@@ -131,6 +273,7 @@ export default function Snow() {
   // Bump this to force a refetch without reload.
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [geoNonce, setGeoNonce] = useState(0);
+  const lastCompletedRefreshNonce = useRef(0);
 
   const ageCompact = useMemo(() => {
     if (geo.status !== "ready") return null;
@@ -244,6 +387,18 @@ export default function Snow() {
     [resortsWithMiles],
   );
   const resortsInRadius = resortsForFetch;
+  const resortIdsForFetch = useMemo(
+    () => resortsForFetch.map((r) => r.id).join("|"),
+    [resortsForFetch],
+  );
+  const resortsForFetchStable = useMemo(() => {
+    const byId = new Map(RESORTS.map((r) => [r.id, r]));
+    return resortIdsForFetch
+      .split("|")
+      .filter(Boolean)
+      .map((id) => byId.get(id))
+      .filter((r): r is (typeof RESORTS)[number] => Boolean(r));
+  }, [resortIdsForFetch]);
 
   const driveMilesById = useMemo(() => {
     const m: Record<string, number> = { ...FALLBACK_DRIVE_MILES };
@@ -266,39 +421,58 @@ export default function Snow() {
    *  Snow fetch (single path)
    *  --------------------------- */
   const refreshSnowSoft = useCallback(async () => {
-    // clear cache then refetch (no reload)
-    try {
-      localStorage.removeItem(LS_SNOW_CACHE);
-    } catch {}
+    setSnowError(null);
     setRefreshNonce((x) => x + 1);
   }, []);
 
   useEffect(() => {
     let alive = true;
+    const resorts = resortsForFetchStable;
+    const forceRefresh = refreshNonce !== lastCompletedRefreshNonce.current;
 
     (async () => {
       setSnowLoading(true);
+      setSnowError(null);
       try {
+        if (resorts.length === 0) {
+          if (!alive) return;
+          setSnowError(`No resorts found within ${maxMiles} miles.`);
+          return;
+        }
+
         const result = await snowService.getSnow({
-          resorts: resortsForFetch,
+          resorts,
+          forceRefresh,
         });
         if (!alive) return;
-        setSnowById(result);
+        if (hasValidSnowRecords(result)) {
+          setSnowById(result);
+          writeSnowUiCache(result);
+        } else {
+          setSnowError("Snow data is unavailable right now.");
+        }
+      } catch (e: any) {
+        if (!alive) return;
+        setSnowError(e?.message ?? "Snow data is unavailable right now.");
       } finally {
-        if (alive) setSnowLoading(false);
+        if (alive) {
+          lastCompletedRefreshNonce.current = refreshNonce;
+          setSnowLoading(false);
+        }
       }
     })();
 
     return () => {
+      // This ignores stale results after a newer effect starts; it does not
+      // cancel already-started provider requests.
       alive = false;
     };
-  }, [resortsForFetch, refreshNonce]);
+  }, [maxMiles, resortsForFetchStable, refreshNonce]);
 
   /** ---------------------------
    *  Planner + VM
    *  --------------------------- */
   const outlook = useMemo(() => {
-    if (snowLoading) return null;
     if (!snowById || Object.keys(snowById).length === 0) return null;
 
     return buildWeekPlan({
@@ -309,7 +483,7 @@ export default function Snow() {
       topNPerDay: 3,
       driveMilesByResortId: driveMilesById,
     });
-  }, [snowLoading, snowById, driveMilesById]);
+  }, [snowById, driveMilesById]);
   const weekVM = useMemo(() => {
     if (!outlook) return null;
     return buildWeekPlanViewModel({
@@ -319,6 +493,7 @@ export default function Snow() {
       snowByResortId: snowById,
     });
   }, [outlook, driveMilesById, resortsInRadius, snowById]);
+  const hasSnowData = useMemo(() => hasValidSnowRecords(snowById), [snowById]);
 
   /** ---------------------------
    *  Timeline selection
@@ -809,6 +984,96 @@ export default function Snow() {
         >
           <IonRefresherContent />
         </IonRefresher>
+        {snowLoading && !weekVM && (
+          <IonList inset={true}>
+            <IonItem>
+              <IonLabel>
+                <div
+                  style={{
+                    borderRadius: 18,
+                    padding: 16,
+                    background: "#ffffff08",
+                    border: "1px solid #ffffff1f",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 12,
+                  }}
+                >
+                  <IonSkeletonText
+                    animated={true}
+                    style={{ width: "38%", height: 12, margin: "0 auto" }}
+                  />
+                  <IonSkeletonText
+                    animated={true}
+                    style={{ width: "22%", height: 36, margin: "0 auto" }}
+                  />
+                  <IonSkeletonText
+                    animated={true}
+                    style={{ width: "56%", height: 22, margin: "0 auto" }}
+                  />
+
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "center",
+                      gap: 10,
+                      marginTop: 4,
+                    }}
+                  >
+                    {Array.from({ length: 3 }).map((_, i) => (
+                      <div
+                        key={`startup-pill-${i}`}
+                        style={{
+                          borderRadius: 14,
+                          border: "1px solid #ffffff22",
+                          padding: 10,
+                          minWidth: 110,
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 8,
+                        }}
+                      >
+                        <IonSkeletonText
+                          animated={true}
+                          style={{ width: "45%", height: 12 }}
+                        />
+                        <IonSkeletonText
+                          animated={true}
+                          style={{ width: "65%", height: 14 }}
+                        />
+                        <IonSkeletonText
+                          animated={true}
+                          style={{ width: "50%", height: 12 }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </IonLabel>
+            </IonItem>
+          </IonList>
+        )}
+        {!snowLoading && snowError && !weekVM && (
+          <IonList inset={true}>
+            <IonItem>
+              <IonLabel>
+                <h2>Snow data unavailable</h2>
+                <p>{snowError}</p>
+              </IonLabel>
+            </IonItem>
+          </IonList>
+        )}
+        {snowError && weekVM && (
+          <IonList inset={true}>
+            <IonItem>
+              <IonLabel>
+                <IonNote color="warning">
+                  Showing saved snow data. Refresh failed: {snowError}
+                </IonNote>
+              </IonLabel>
+            </IonItem>
+          </IonList>
+        )}
         {weekVM && (
           <IonList inset={true}>
             <IonItem>
@@ -840,20 +1105,6 @@ export default function Snow() {
                       null;
 
                     const primaryResortId = primaryPick?.resortId ?? null;
-
-                    console.log("[hero primary snow]", {
-                      primaryResortId,
-                      resortName: primaryPick?.resortName,
-                      selectedDateISO: selectedDay?.dateISO,
-                      topPickNext24Label: selectedDay?.topPick?.next24Label,
-                      topPickNext24In: selectedDay?.topPick?.next24In,
-                      weekSnowDaily: primaryResortId
-                        ? (snowById[primaryResortId] as any)?.weekSnowDaily
-                        : null,
-                      recentSnowDaily: primaryResortId
-                        ? (snowById[primaryResortId] as any)?.recentSnowDaily
-                        : null,
-                    });
 
                     const next24Updated =
                       (primaryResortId
@@ -1713,7 +1964,7 @@ export default function Snow() {
             </IonLabel>
           </IonItem>
 
-          {snowLoading
+          {snowLoading && !hasSnowData
             ? Array.from({ length: 5 }).map((_, i) => (
                 <IonItem key={`sk-${i}`}>
                   <IonLabel>

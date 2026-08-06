@@ -764,27 +764,23 @@ export async function getOnTheSnowForecastDaily(
   const url = resolveOnTheSnowUrl(resort);
   if (!url) return [];
 
-  try {
-    const html = await fetchTextViaProxy(url);
+  const html = await fetchTextViaProxy(url, "onthesnow.forecast");
 
-    const bins = parseForecastSnowDaily(html, days);
+  const bins = parseForecastSnowDaily(html, days);
 
-    dvlog("[ots forecast]", {
-      resortId: resort.id,
-      resortName: resort.name,
-      bins,
-    });
-    if (resort.id === "loon") {
-      dvlog(
-        "[ots forecast loon]",
-        bins.map((b) => `${b.dateISO}:${b.inches}`).join(", "),
-      );
-    }
-
-    return bins;
-  } catch {
-    return [];
+  dvlog("[ots forecast]", {
+    resortId: resort.id,
+    resortName: resort.name,
+    bins,
+  });
+  if (resort.id === "loon") {
+    dvlog(
+      "[ots forecast loon]",
+      bins.map((b) => `${b.dateISO}:${b.inches}`).join(", "),
+    );
   }
+
+  return bins;
 }
 
 export async function getOnTheSnowLast48(resort: Resort) {
@@ -803,7 +799,7 @@ export async function getOnTheSnowLast48(resort: Resort) {
 
   if (!url) return null;
 
-  const html = await fetchTextViaProxy(url);
+  const html = await fetchTextViaProxy(url, "onthesnow.last48");
 
   const recentDaily = parseRecentSnowfallDaily(html);
 

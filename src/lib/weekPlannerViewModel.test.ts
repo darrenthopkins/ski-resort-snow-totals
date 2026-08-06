@@ -117,4 +117,25 @@ describe("buildWeekPlanViewModel", () => {
       expect(["steady", "peaky", "skip"]).toContain(r.weekTag);
     }
   });
+
+  it("does not throw when geolocation leaves no resorts in radius", async () => {
+    const svc = new MockSnowService();
+    const metrics = await svc.getSnow();
+    const outlook = buildWeekPlan({
+      resorts: RESORTS,
+      metricsByResortId: metrics,
+      startDateISO: "2026-02-16",
+      days: 7,
+      topNPerDay: 3,
+    });
+
+    const vm = buildWeekPlanViewModel({
+      outlook,
+      resorts: [],
+      driveMilesByResortId: {},
+    });
+
+    expect(vm.summary.backupResort.reason).toBe("No in-radius backup option");
+    expect(vm.summary.backupResort.id).toBe(vm.summary.bestOverallResort.id);
+  });
 });

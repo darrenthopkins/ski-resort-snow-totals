@@ -13,8 +13,15 @@ import {
   getWeekSnowDaily,
   getWeekWeatherDaily,
 } from "./nwsClient";
+import { withTimeout } from "../http/timeout";
+import { formatFetchDiagnostic } from "../http/fetchDiagnostics";
 
 type DailySnowBin = { dateISO: string; inches: number };
+type SnowProviderSummary = {
+  resortId: string;
+  resortName: string;
+  providers: Record<string, string>;
+};
 
 function localNoon(d = new Date()): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12, 0, 0, 0);
@@ -136,8 +143,22 @@ const dvlog = (...args: unknown[]) => {
   console.debug(...args);
 };
 
+function recordProviderDiagnostics(summary: SnowProviderSummary) {
+  dlog("[snow provider diagnostics]", summary);
+}
+
+function settledStatus<T>(
+  result: PromiseSettledResult<T>,
+  okSummary = "ok",
+): string {
+  return result.status === "fulfilled"
+    ? okSummary
+    : formatFetchDiagnostic(result.reason);
+}
+
 const CACHE_MS = 10 * 60 * 1000; // 10 minutes
 const LS_KEY = "srs_snow_cache_v1";
+const PROVIDER_TIMEOUT_MS = 15_000;
 
 type CacheEntry = { at: number; v: SnowMetrics };
 type CacheMap = Record<string, CacheEntry>;
@@ -209,7 +230,7 @@ export class RealSnowService implements SnowService {
     const safeISO = (s?: string | null) =>
       s && !Number.isNaN(new Date(s).getTime()) ? s : nowISO;
 
-    const noCache = NO_CACHE();
+    const noCache = NO_CACHE() || options.forceRefresh === true;
 
     for (const r of options.resorts) {
       dlog("[snow] resort start", { id: r.id, name: r.name, noCache });
@@ -255,11 +276,31 @@ export class RealSnowService implements SnowService {
             nwsWeekSnowDailyResult,
             weekWeatherDailyResult,
           ] = await Promise.allSettled([
-            getOnTheSnowLast48(r),
-            getOnTheSnowForecastDaily(r, 7),
-            getNext24SnowInches(r),
-            getWeekSnowDaily(r, 7),
-            getWeekWeatherDaily(r, 7),
+            withTimeout(
+              getOnTheSnowLast48(r),
+              PROVIDER_TIMEOUT_MS,
+              `getOnTheSnowLast48 ${r.id}`,
+            ),
+            withTimeout(
+              getOnTheSnowForecastDaily(r, 7),
+              PROVIDER_TIMEOUT_MS,
+              `getOnTheSnowForecastDaily ${r.id}`,
+            ),
+            withTimeout(
+              getNext24SnowInches(r),
+              PROVIDER_TIMEOUT_MS,
+              `getNext24SnowInches ${r.id}`,
+            ),
+            withTimeout(
+              getWeekSnowDaily(r, 7),
+              PROVIDER_TIMEOUT_MS,
+              `getWeekSnowDaily ${r.id}`,
+            ),
+            withTimeout(
+              getWeekWeatherDaily(r, 7),
+              PROVIDER_TIMEOUT_MS,
+              `getWeekWeatherDaily ${r.id}`,
+            ),
           ]);
 
           const otsLast48 =
@@ -285,30 +326,19 @@ export class RealSnowService implements SnowService {
               ? weekWeatherDailyResult.value
               : null;
 
-          dlog("[snow source status]", {
+          const providerSummary = {
             resortId: r.id,
             resortName: r.name,
-            otsLast48:
-              otsLast48Result.status === "fulfilled"
-                ? "ok"
-                : String(otsLast48Result.reason),
-            otsForecastDaily:
-              otsForecastDailyResult.status === "fulfilled"
-                ? "ok"
-                : String(otsForecastDailyResult.reason),
-            next24:
-              next24Result.status === "fulfilled"
-                ? "ok"
-                : String(next24Result.reason),
-            nwsWeekSnowDaily:
-              nwsWeekSnowDailyResult.status === "fulfilled"
-                ? "ok"
-                : String(nwsWeekSnowDailyResult.reason),
-            weekWeatherDaily:
-              weekWeatherDailyResult.status === "fulfilled"
-                ? "ok"
-                : String(weekWeatherDailyResult.reason),
-          });
+            providers: {
+              otsLast48: settledStatus(otsLast48Result),
+              otsForecastDaily: settledStatus(otsForecastDailyResult),
+              next24: settledStatus(next24Result),
+              nwsWeekSnowDaily: settledStatus(nwsWeekSnowDailyResult),
+              weekWeatherDaily: settledStatus(weekWeatherDailyResult),
+            },
+          };
+
+          recordProviderDiagnostics(providerSummary);
 
           const normalizedRecentSnowDaily = otsLast48?.recentDaily
             ? Object.entries(otsLast48.recentDaily)
@@ -524,9 +554,9 @@ export class RealSnowService implements SnowService {
               next24In: null,
             } as SnowMetrics);
 
-          memCache[r.id] = { at: Date.now(), v: mv };
-          writeCache(memCache);
-
+          // Do not persist last-resort mock/placeholder fallback as fresh data.
+          // Partial provider failures above still assemble and cache a real
+          // SnowMetrics value through the normal success path.
           return mv;
         } finally {
           inflightMap.delete(r.id);

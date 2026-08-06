@@ -2,6 +2,8 @@
 
 import type { Resort } from "../../data/resorts";
 import { Capacitor } from "@capacitor/core";
+import { fetchWithTimeout } from "../http/timeout";
+import { FetchDiagnosticError, sanitizeEndpoint } from "../http/fetchDiagnostics";
 
 type NwsPointsResponse = {
   properties: {
@@ -128,6 +130,7 @@ function overlapMillis(
 }
 
 const WORKER_BASE = "https://sweet-waterfall-ccaa.darrenthopkins.workers.dev";
+const NWS_FETCH_TIMEOUT_MS = 12_000;
 function proxied(url: string) {
   return Capacitor.isNativePlatform()
     ? `${WORKER_BASE}/api/fetch?url=${encodeURIComponent(url)}`
@@ -135,21 +138,53 @@ function proxied(url: string) {
 }
 
 async function fetchNwsJson<T>(url: string): Promise<T> {
-  const resp = await fetch(proxied(url), {
-    headers: { Accept: "application/geo+json" },
-  });
+  let resp: Response;
+  try {
+    resp = await fetchWithTimeout(
+      proxied(url),
+      {
+        headers: { Accept: "application/geo+json" },
+      },
+      NWS_FETCH_TIMEOUT_MS,
+      `nws ${sanitizeEndpoint(url)}`,
+    );
+  } catch (error: any) {
+    throw new FetchDiagnosticError({
+      kind: error?.name === "RequestTimeoutError" ? "timeout" : "network",
+      provider: "nws",
+      endpoint: sanitizeEndpoint(url),
+      message: error?.message ?? String(error),
+    });
+  }
   // console.log("[nws.fetch]", { url, proxied: proxied(url) });
   if (!resp.ok) {
     const body = await resp.text().catch(() => "");
-    throw new Error(
-      `NWS ${resp.status} ${resp.statusText} for ${url} :: ${body.slice(
-        0,
-        200,
-      )}`,
-    );
+    const upstreamStatus = resp.headers.get("x-proxy-upstream-status");
+    throw new FetchDiagnosticError({
+      kind: upstreamStatus ? "upstream_http" : "worker_http",
+      provider: "nws",
+      endpoint: sanitizeEndpoint(url),
+      status: resp.status,
+      statusText: resp.statusText,
+      upstreamStatus,
+      contentType:
+        resp.headers.get("x-proxy-content-type") ??
+        resp.headers.get("content-type"),
+      message: body.slice(0, 160) || resp.statusText || "HTTP error",
+    });
   }
   // console.log("[nws.fetch.resp]", { url, status: resp.status });
-  return (await resp.json()) as T;
+  try {
+    return (await resp.json()) as T;
+  } catch (error: any) {
+    throw new FetchDiagnosticError({
+      kind: "parse",
+      provider: "nws",
+      endpoint: sanitizeEndpoint(url),
+      contentType: resp.headers.get("content-type"),
+      message: error?.message ?? String(error),
+    });
+  }
 }
 function fmtLocalDateISO(d: Date): string {
   const y = d.getFullYear();
