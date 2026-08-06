@@ -47,6 +47,20 @@ function writeJson(key: string, value: unknown) {
     localStorage.setItem(key, JSON.stringify(value));
   } catch {}
 }
+function assertFiniteCoords(lat: unknown, lon: unknown): {
+  lat: number;
+  lon: number;
+} {
+  if (
+    typeof lat !== "number" ||
+    typeof lon !== "number" ||
+    !Number.isFinite(lat) ||
+    !Number.isFinite(lon)
+  ) {
+    throw { code: "unavailable", message: "Invalid location coordinates" };
+  }
+  return { lat, lon };
+}
 function isFresh(ts: number, maxAgeMs: number) {
   return Date.now() - ts <= maxAgeMs;
 }
@@ -149,10 +163,12 @@ async function getCurrentWeb(timeoutMs: number): Promise<GeoReady> {
     timeoutMs + 250,
   );
 
+  const coords = assertFiniteCoords(pos.coords.latitude, pos.coords.longitude);
+
   return {
     status: "ready",
-    lat: pos.coords.latitude,
-    lon: pos.coords.longitude,
+    lat: coords.lat,
+    lon: coords.lon,
     at: Date.now(),
     source: "current",
     accuracyM:
@@ -195,10 +211,12 @@ async function getCurrentNative(timeoutMs: number): Promise<GeoReady> {
     timeoutMs + 250,
   );
 
+  const coords = assertFiniteCoords(pos.coords.latitude, pos.coords.longitude);
+
   return {
     status: "ready",
-    lat: pos.coords.latitude,
-    lon: pos.coords.longitude,
+    lat: coords.lat,
+    lon: coords.lon,
     at: Date.now(),
     source: "current",
     accuracyM:

@@ -18,6 +18,7 @@ import {
 import Snow from "./pages/Snow";
 import Tab2 from "./pages/Tab2";
 import Tab3 from "./pages/Tab3";
+import { DiagnosticErrorBoundary } from "./components/DiagnosticErrorBoundary";
 
 /* Core CSS required for Ionic components to work properly */
 import "@ionic/react/css/core.css";
@@ -57,7 +58,9 @@ const App: React.FC = () => (
       <IonTabs>
         <IonRouterOutlet>
           <Route exact path="/snow">
-            <Snow />
+            <DiagnosticErrorBoundary route="/snow">
+              <Snow />
+            </DiagnosticErrorBoundary>
           </Route>
           <Route exact path="/tab2">
             <Tab2 />

@@ -71,6 +71,7 @@ export type SnowMetrics = {
 
 export type GetSnowOptions = {
   resorts: Resort[];
+  forceRefresh?: boolean;
 };
 
 export interface SnowService {

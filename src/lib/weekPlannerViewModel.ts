@@ -151,6 +151,13 @@ function pickBackupResort(params: {
 
   // Fallback: second resort in list (stable, deterministic v0)
   const fallback = resorts.find((r) => r.id !== bestOverallId) ?? resorts[0];
+  if (!fallback) {
+    return {
+      id: bestOverallId,
+      name: bestOverallId,
+      reason: "No in-radius backup option",
+    };
+  }
   return {
     id: fallback.id,
     name: fallback.name,
