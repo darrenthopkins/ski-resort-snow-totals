@@ -82,6 +82,24 @@ function readMaxMiles(): number {
   return DEFAULT_MAX_MILES;
 }
 
+function readSnowCache(): Record<string, SnowMetrics> {
+  try {
+    const raw = localStorage.getItem(LS_SNOW_CACHE);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") {
+      return parsed as Record<string, SnowMetrics>;
+    }
+  } catch {}
+  return {};
+}
+
+function writeSnowCache(value: Record<string, SnowMetrics>) {
+  try {
+    localStorage.setItem(LS_SNOW_CACHE, JSON.stringify(value));
+  } catch {}
+}
+
 function fmtInches(v: number | null) {
   return v === null ? "—" : `${v}"`;
 }
@@ -122,7 +140,9 @@ export default function Snow() {
    *  --------------------------- */
   const [geo, setGeo] = useState<GeoUi>({ status: "idle" });
 
-  const [snowById, setSnowById] = useState<Record<string, SnowMetrics>>({});
+  const [snowById, setSnowById] = useState<Record<string, SnowMetrics>>(() =>
+    readSnowCache(),
+  );
   const [snowLoading, setSnowLoading] = useState<boolean>(true);
 
   const [maxMiles, setMaxMiles] = useState<number>(() => readMaxMiles());
@@ -284,6 +304,7 @@ export default function Snow() {
         });
         if (!alive) return;
         setSnowById(result);
+        writeSnowCache(result);
       } finally {
         if (alive) setSnowLoading(false);
       }
@@ -298,7 +319,6 @@ export default function Snow() {
    *  Planner + VM
    *  --------------------------- */
   const outlook = useMemo(() => {
-    if (snowLoading) return null;
     if (!snowById || Object.keys(snowById).length === 0) return null;
 
     return buildWeekPlan({
@@ -309,7 +329,7 @@ export default function Snow() {
       topNPerDay: 3,
       driveMilesByResortId: driveMilesById,
     });
-  }, [snowLoading, snowById, driveMilesById]);
+  }, [snowById, driveMilesById]);
   const weekVM = useMemo(() => {
     if (!outlook) return null;
     return buildWeekPlanViewModel({
@@ -809,6 +829,75 @@ export default function Snow() {
         >
           <IonRefresherContent />
         </IonRefresher>
+        {snowLoading && !weekVM && (
+          <IonList inset={true}>
+            <IonItem>
+              <IonLabel>
+                <div
+                  style={{
+                    borderRadius: 18,
+                    padding: 16,
+                    background: "#ffffff08",
+                    border: "1px solid #ffffff1f",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 12,
+                  }}
+                >
+                  <IonSkeletonText
+                    animated={true}
+                    style={{ width: "38%", height: 12, margin: "0 auto" }}
+                  />
+                  <IonSkeletonText
+                    animated={true}
+                    style={{ width: "22%", height: 36, margin: "0 auto" }}
+                  />
+                  <IonSkeletonText
+                    animated={true}
+                    style={{ width: "56%", height: 22, margin: "0 auto" }}
+                  />
+
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "center",
+                      gap: 10,
+                      marginTop: 4,
+                    }}
+                  >
+                    {Array.from({ length: 3 }).map((_, i) => (
+                      <div
+                        key={`startup-pill-${i}`}
+                        style={{
+                          borderRadius: 14,
+                          border: "1px solid #ffffff22",
+                          padding: 10,
+                          minWidth: 110,
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 8,
+                        }}
+                      >
+                        <IonSkeletonText
+                          animated={true}
+                          style={{ width: "45%", height: 12 }}
+                        />
+                        <IonSkeletonText
+                          animated={true}
+                          style={{ width: "65%", height: 14 }}
+                        />
+                        <IonSkeletonText
+                          animated={true}
+                          style={{ width: "50%", height: 12 }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </IonLabel>
+            </IonItem>
+          </IonList>
+        )}
         {weekVM && (
           <IonList inset={true}>
             <IonItem>
@@ -840,20 +929,6 @@ export default function Snow() {
                       null;
 
                     const primaryResortId = primaryPick?.resortId ?? null;
-
-                    console.log("[hero primary snow]", {
-                      primaryResortId,
-                      resortName: primaryPick?.resortName,
-                      selectedDateISO: selectedDay?.dateISO,
-                      topPickNext24Label: selectedDay?.topPick?.next24Label,
-                      topPickNext24In: selectedDay?.topPick?.next24In,
-                      weekSnowDaily: primaryResortId
-                        ? (snowById[primaryResortId] as any)?.weekSnowDaily
-                        : null,
-                      recentSnowDaily: primaryResortId
-                        ? (snowById[primaryResortId] as any)?.recentSnowDaily
-                        : null,
-                    });
 
                     const next24Updated =
                       (primaryResortId
